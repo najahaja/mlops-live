@@ -41,9 +41,19 @@ tests/            automated tests
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
+python -m pip install -r requirements-dev.txt
+python -m pip install -e . --no-deps
 ```
 
-Dependency installation instructions will be added once `requirements.txt` is defined.
+For an exact, fully pinned environment use `requirements-lock.txt` instead of `requirements-dev.txt`.
+
+## Checks
+
+```powershell
+python -m pytest
+python -m ruff check .
+python -m ruff format --check .
+```
 
 ## Data source
 
