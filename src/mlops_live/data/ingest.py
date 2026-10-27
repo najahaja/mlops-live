@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from urllib.parse import urlparse
 
 import pyarrow.parquet as pq
 import requests
@@ -59,8 +58,6 @@ def validate_parquet_file(file_path: Path) -> int:
             raise ValueError(f"Parquet file contains zero rows: {file_path}")
         return num_rows
     except Exception as exc:
-        if isinstance(exc, ValueError):
-            raise
         raise ValueError(f"Failed to read parquet metadata from {file_path}: {exc}") from exc
 
 
