@@ -1,0 +1,17 @@
+# Normalize text files to LF in the repository (Windows checkouts may still use CRLF)
+* text=auto eol=lf
+
+# Windows-only scripts must keep CRLF
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# Binary files: never normalize or diff
+*.parquet binary
+*.pkl     binary
+*.joblib  binary
+*.onnx    binary
+*.db      binary
+*.sqlite  binary
+*.png     binary
+*.jpg     binary
