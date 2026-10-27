@@ -1,0 +1,58 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+
+# --- Secrets / local config ---
+.env
+.env.*
+!.env.example
+
+# --- Testing / coverage / tooling caches ---
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- Data (raw/processed data is downloaded/generated, not committed) ---
+data/raw/*
+data/interim/*
+data/processed/*
+!data/**/.gitkeep
+
+# --- MLflow / model artifacts ---
+mlruns/
+mlartifacts/
+models/*
+!models/.gitkeep
+
+# --- Local databases & logs ---
+*.db
+*.sqlite
+*.sqlite3
+logs/
+*.log
+
+# --- Load testing / monitoring outputs ---
+reports/generated/
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+Desktop.ini
+.DS_Store
