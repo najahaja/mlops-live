@@ -67,7 +67,7 @@ def extract_features(df: pd.DataFrame) -> pd.DataFrame:
     features["passenger_count"] = passenger_count.fillna(1.0).astype("float64")
 
     features["pickup_hour"] = pickup_dt.dt.hour.astype("int64")
-    features["pickup_day_of_week"] = pickup_dt.dt.dayofweek.astype("int64")
+    features["pickup_day_of_week"] = pickup_dt.dt.day_of_week.astype("int64")
 
     return features[FEATURE_COLUMNS]
 
