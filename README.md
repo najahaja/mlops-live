@@ -55,6 +55,15 @@ python -m ruff check .
 python -m ruff format --check .
 ```
 
+## Usage
+
+### Ingest Data
+Download monthly Green Taxi parquet data directly from NYC TLC:
+
+```powershell
+python scripts/download_data.py --year 2024 --month 1
+```
+
 ## Data source
 
 NYC Taxi & Limousine Commission (TLC) Trip Record Data:
