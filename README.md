@@ -3,7 +3,7 @@
 A production-style MLOps platform built around a real, continuously published public dataset:
 **NYC TLC Green Taxi trip records**, used to predict **trip duration (minutes)**.
 
-> Status: **Phase 1 — project setup.** No models or results yet.
+> Status: **Phase 1 complete (Data Pipeline); Phase 2 in progress (Baseline & Candidate Modeling).**
 
 ## Planned capabilities
 
@@ -63,6 +63,14 @@ Download monthly Green Taxi parquet data directly from NYC TLC:
 ```powershell
 python scripts/download_data.py --year 2024 --month 1
 ```
+
+### Prepare Data
+Clean raw records, extract leakage-safe features, and write chronological train/validation/test splits (`data/processed/train.parquet`, `val.parquet`, `test.parquet`):
+
+```powershell
+python scripts/prepare_data.py --input-file data/raw/green_tripdata_2024-01.parquet --output-dir data/processed
+```
+(Pass `--force` to overwrite existing split files.)
 
 ## Data source
 
