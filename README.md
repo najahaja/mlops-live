@@ -72,6 +72,14 @@ python scripts/prepare_data.py --input-file data/raw/green_tripdata_2024-01.parq
 ```
 (Pass `--force` to overwrite existing split files.)
 
+### Train & Evaluate Baseline vs. Candidate Models
+Train the median dummy reference, one-hot `Ridge` linear baseline, and target-encoded `HistGradientBoostingRegressor` candidate on `train.parquet`, evaluate on `val.parquet` (keeping `test.parquet` isolated), and save the selected model pipeline (`models/model.joblib`) and evaluation report (`models/metrics.json`):
+
+```powershell
+python scripts/train.py --train-file data/processed/train.parquet --val-file data/processed/val.parquet --output-dir models
+```
+(Pass `--force` to overwrite existing model artifacts.)
+
 ## Data source
 
 NYC Taxi & Limousine Commission (TLC) Trip Record Data:
