@@ -3,7 +3,7 @@
 A production-style MLOps platform built around a real, continuously published public dataset:
 **NYC TLC Green Taxi trip records**, used to predict **trip duration (minutes)**.
 
-> Status: **Phase 1–5 complete (Data Pipeline, Baseline & Candidate Models, SQLite MLflow Registry, FastAPI Serving, PSI/KS Drift Monitoring).**
+> Status: **Phase 1–6 complete (Data Pipeline, Modeling, MLflow Registry, FastAPI Serving, PSI/KS Drift Monitoring, Retraining & Human Approval Lifecycle).**
 
 ## Planned capabilities
 
@@ -96,6 +96,27 @@ python scripts/check_drift.py --reference-file data/processed/train.parquet --cu
 
 # Or evaluate drift against live logged requests in predictions.db:
 python scripts/check_drift.py --use-predictions-db --predictions-db predictions.db
+```
+
+### Automated Retraining, Champion/Challenger Gate, Human Approval & Rollback
+Run drift-aware retraining (which stages the new winner as `@challenger` without overwriting `@champion`), evaluate `@champion` vs. `@challenger`, require explicit human approval (`--approve --approved-by`) for promotion, or roll back instantly:
+
+```powershell
+# Retrain and stage new @challenger (never auto-promotes over incumbent @champion):
+python scripts/retrain_and_evaluate.py --only-if-drifted
+
+# Inspect registry aliases (@champion, @challenger, @previous_champion) and audit logs:
+python scripts/manage_model.py --status
+
+# Evaluate @champion vs @challenger side-by-side:
+python scripts/manage_model.py --evaluate --eval-file data/processed/val.parquet
+
+# Promote @challenger to @champion with human approval:
+python scripts/manage_model.py --approve --approved-by najahaja
+
+# Roll back @champion to @previous_champion or an explicit version:
+python scripts/manage_model.py --rollback-previous --approved-by najahaja --reason "rollback_check"
+python scripts/manage_model.py --rollback-to-version 2 --approved-by najahaja
 ```
 
 ## Data source
