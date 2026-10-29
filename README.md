@@ -3,7 +3,7 @@
 A production-style, local-first MLOps platform built around a real public dataset:
 **NYC TLC Green Taxi trip records**, used to predict **trip duration (`duration_minutes`)** at ride-request time.
 
-> **Current Status:** Phases 1–7 implemented and locally verified on Windows 11 / Python 3.11.9 (`44 passed` automated tests, `ruff check` and `ruff format --check` clean).
+> **Current Status:** Phases 1–7 implemented and locally verified on Windows 11 / Python 3.11.9 (`51 passed` automated tests, `ruff check` and `ruff format --check` clean).
 
 ---
 
@@ -51,7 +51,7 @@ flowchart TD
 | **PSI & Kolmogorov–Smirnov Drift Monitoring** | Implemented (`src/mlops_live/monitoring/drift.py`, `scripts/check_drift.py`) | **Locally verified** with weekday-coverage safeguard (`evaluation_status="insufficient_data"` when `< 7` weekdays or `< 5` samples/weekday). |
 | **Retraining, Human Approval Gate & Rollback** | Implemented (`src/mlops_live/lifecycle/workflow.py`, `scripts/retrain_and_evaluate.py`, `scripts/manage_model.py`) | **Locally verified** via end-to-end automated tests on temporary registries/artifacts and read/eval checks on `mlflow.db`. |
 | **Isolated Holdout Evaluation (`test.parquet`)** | Implemented (`scripts/evaluate_holdout.py`) | **Locally verified** on untouched `data/processed/test.parquet` (`7,880` rows). |
-| **Concurrent Load & Latency Testing** | Implemented (`scripts/load_test.py`) | **Locally verified in-process** using FastAPI `TestClient` across worker threads (not yet benchmarked over an external live HTTP socket). |
+| **Concurrent Load & Latency Testing** | Implemented (`scripts/load_test.py`: `--mode in_process` and `--mode http` / `--spawn-server`) | **Locally verified** in both in-process `TestClient` mode (`reports/generated/load_test_report.json`) and live localhost TCP HTTP Uvicorn mode (`reports/generated/http_load_test_report.json`). |
 | **GitHub Actions CI Workflow** | Implemented (`.github/workflows/ci.yml`) | **Configured locally, unverified on GitHub** (no Git remote is configured yet; all CI steps pass locally). |
 
 ---
@@ -78,8 +78,27 @@ flowchart TD
   - **Validation (`7,879` rows):** `-0.4978` min MAE (`-14.57%`), `-0.4842` min RMSE (`-9.30%`), `+0.0552` $R^2$.
   - **Isolated Holdout Test (`7,880` rows):** `-0.4499` min MAE (`-14.06%`), `-0.4574` min RMSE (`-9.51%`), `+0.0536` $R^2$.
 
-### 3. In-Process Concurrent Load Test (`reports/generated/load_test_report.json`)
-> **Important Note:** `scripts/load_test.py` executes concurrent requests against the FastAPI application in-process using Starlette/FastAPI `TestClient` and a `ThreadPoolExecutor` (including synchronous SQLite prediction logging on every request), rather than over an external live `uvicorn` TCP socket.
+### 3. Concurrent Load Testing (`scripts/load_test.py`)
+
+`scripts/load_test.py` supports two distinct execution modes:
+
+1. **In-Process `TestClient` Microbenchmark (`--mode in_process`, default):**
+   - Executes concurrent requests in-process using Starlette/FastAPI `TestClient` and a `ThreadPoolExecutor` (without an external TCP socket).
+   - Writes to `reports/generated/load_test_report.json` by default.
+2. **Real-HTTP Localhost Load Testing (`--mode http`, `--base-url`, or `--spawn-server`):**
+   - Sends concurrent TCP HTTP requests (`POST /predict`) using `requests.Session` with automatic retries disabled (`HTTPAdapter(max_retries=0)`) against a live localhost Uvicorn server (`127.0.0.1` or `localhost` only).
+   - Records client-observed round-trip latency (`client_latency_ms`) and server-reported inference latency (`server_inference_latency_ms`) separately, plus structured failure counts (`http_errors`, `timeouts`, `connection_errors`, `other_errors`).
+   - **Database Isolation (`--spawn-server`):** When spawning a managed Uvicorn child server, prediction logs are directed to a temporary SQLite database (`temp_predictions.db` in an isolated temporary directory) that is automatically removed after the child server stops. The operational `predictions.db` is never modified.
+   - **Report Non-Overwrite Protection:** Real-HTTP mode refuses to overwrite `reports/generated/load_test_report.json` or any existing report file. When `--output-json` is omitted, it writes to a unique UTC-timestamped path `reports/generated/http_load_test_report_<YYYYMMDDTHHMMSSZ>.json`.
+   - **Methodology Caveat (`local_uvicorn_localhost_tcp_http`):** Results are measured over localhost loopback TCP on a single Windows machine and depend on local CPU load, model warm-up, concurrency, and OS thread scheduling; they do not establish cloud or production-scale capacity.
+
+#### Verified Real-HTTP Localhost Uvicorn Benchmark (`reports/generated/http_load_test_report.json`)
+
+| Methodology | Target | Concurrency | Total Requests | Error Rate | Throughput (`req/s`) | Server Inference P50 / P95 / P99 (`ms`) | Client HTTP Round-Trip P50 / P95 / P99 (`ms`) | SLA Gate (`P95 <= 500 ms`) |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
+| `local_uvicorn_localhost_tcp_http` | `http://127.0.0.1:8010/predict` (`hist_gbdt_candidate` `v2` `@champion`) | `4` threads | `50` | `0.0%` (`50/50`) | `24.72` | `112.67` / `255.01` / `262.29` | `145.99` / `292.38` / `323.96` | **PASSED (`true`)** |
+
+#### Verified In-Process Benchmark (`reports/generated/load_test_report.json`)
 
 | Concurrency | Total Requests | Error Rate | Throughput (`req/s`) | Server Inference P50 / P95 (`ms`) | Client Round-Trip P50 / P95 (`ms`) | SLA Gate (`P95 <= 500 ms`) |
 | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
@@ -152,9 +171,20 @@ python -m venv .venv
 .\.venv\Scripts\python.exe scripts\manage_model.py --rollback-previous --approved-by najahaja --reason "rollback_check"
 .\.venv\Scripts\python.exe scripts\manage_model.py --rollback-to-version 2 --approved-by najahaja
 
-# Step 8: Run isolated holdout evaluation on test.parquet and in-process load test
+# Step 8: Run isolated holdout evaluation on test.parquet
 .\.venv\Scripts\python.exe scripts\evaluate_holdout.py --test-file data/processed/test.parquet
+
+# Step 9a: Run in-process TestClient microbenchmark (default mode)
 .\.venv\Scripts\python.exe scripts\load_test.py --num-requests 100 --concurrency 4
+
+# Step 9b: Run real-HTTP load test with a managed local Uvicorn server (isolated temp predictions DB)
+.\.venv\Scripts\python.exe scripts\load_test.py --spawn-server --host 127.0.0.1 --port 8010 --num-requests 50 --concurrency 4 --timeout 5.0
+
+# Step 9c: Or start/test/stop a local Uvicorn server manually across two PowerShell terminals:
+# Terminal 1 (start server with an isolated predictions DB; press Ctrl+C when finished):
+.\.venv\Scripts\python.exe scripts\serve.py --host 127.0.0.1 --port 8010 --predictions-db temp_http_predictions.db
+# Terminal 2 (run real-HTTP load test against the running localhost server):
+.\.venv\Scripts\python.exe scripts\load_test.py --mode http --base-url http://127.0.0.1:8010 --num-requests 50 --concurrency 4 --timeout 5.0
 ```
 
 ### 3. Quality, Security & Regression Checks
