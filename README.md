@@ -3,7 +3,7 @@
 A production-style MLOps platform built around a real, continuously published public dataset:
 **NYC TLC Green Taxi trip records**, used to predict **trip duration (minutes)**.
 
-> Status: **Phase 1–6 complete (Data Pipeline, Modeling, MLflow Registry, FastAPI Serving, PSI/KS Drift Monitoring, Retraining & Human Approval Lifecycle).**
+> Status: **Phase 1–7 complete (Data Pipeline, Modeling, MLflow Registry, FastAPI Serving & Dashboard, PSI/KS Drift Monitoring, Retraining & Human Approval Lifecycle, Holdout Evaluation, Load Testing & GitHub Actions CI).**
 
 ## Planned capabilities
 
@@ -117,6 +117,17 @@ python scripts/manage_model.py --approve --approved-by najahaja
 # Roll back @champion to @previous_champion or an explicit version:
 python scripts/manage_model.py --rollback-previous --approved-by najahaja --reason "rollback_check"
 python scripts/manage_model.py --rollback-to-version 2 --approved-by najahaja
+```
+
+### Live Monitoring Dashboard, Load Testing & Holdout Evaluation
+Inspect live serving metrics, PSI/KS drift reports, and lifecycle audit history in your browser at `http://127.0.0.1:8000/dashboard` (or JSON at `GET /api/dashboard-summary`), run concurrent load testing, and evaluate the final isolated holdout test split (`data/processed/test.parquet`):
+
+```powershell
+# Evaluate @champion and @challenger on the isolated holdout test split (test.parquet):
+python scripts/evaluate_holdout.py --test-file data/processed/test.parquet
+
+# Run concurrent load & SLA latency testing against the FastAPI prediction service:
+python scripts/load_test.py --num-requests 100 --concurrency 4
 ```
 
 ## Data source

@@ -10,14 +10,16 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import joblib
 import pandas as pd
 from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
 from sklearn.pipeline import Pipeline
 
 from mlops_live.data.clean import FEATURE_COLUMNS, TARGET_COLUMN
+from mlops_live.serving.dashboard import build_dashboard_summary, render_dashboard_html
 from mlops_live.serving.database import (
     count_logged_predictions,
     create_prediction_engine,
@@ -273,5 +275,28 @@ def create_app(
             feature_columns=FEATURE_COLUMNS,
             target_column=TARGET_COLUMN,
         )
+
+    @app.get("/api/dashboard-summary")
+    def dashboard_summary(request: Request) -> dict[str, Any]:
+        bundle: LoadedModelBundle = request.app.state.model_bundle
+        return build_dashboard_summary(
+            engine=request.app.state.db_engine,
+            active_model_name=bundle.model_name,
+            active_model_version=bundle.model_version,
+            active_model_alias=bundle.model_alias,
+            active_model_source=bundle.model_source,
+        )
+
+    @app.get("/dashboard", response_class=HTMLResponse)
+    def dashboard_page(request: Request) -> HTMLResponse:
+        bundle: LoadedModelBundle = request.app.state.model_bundle
+        summary = build_dashboard_summary(
+            engine=request.app.state.db_engine,
+            active_model_name=bundle.model_name,
+            active_model_version=bundle.model_version,
+            active_model_alias=bundle.model_alias,
+            active_model_source=bundle.model_source,
+        )
+        return HTMLResponse(content=render_dashboard_html(summary))
 
     return app
