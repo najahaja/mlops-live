@@ -189,6 +189,7 @@ def save_model_artifacts(
     baseline_vs_candidate: dict[str, float | bool],
     output_dir: Path,
     force: bool = False,
+    mlflow_summary: dict[str, Any] | None = None,
 ) -> tuple[Path, Path]:
     """Safely persist the selected model pipeline (.joblib) and evaluation report (.json).
 
@@ -208,7 +209,7 @@ def save_model_artifacts(
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    report_payload = {
+    report_payload: dict[str, Any] = {
         "created_at_utc": datetime.now(UTC).isoformat(),
         "selected_model": selected.model_name,
         "feature_columns": FEATURE_COLUMNS,
@@ -226,6 +227,8 @@ def save_model_artifacts(
             for res in all_results
         },
     }
+    if mlflow_summary is not None:
+        report_payload["mlflow"] = mlflow_summary
 
     temp_paths = {t: t.with_name(f"{t.name}.tmp") for t in targets}
     backup_paths = {t: t.with_name(f"{t.name}.bak") for t in targets}
@@ -282,6 +285,11 @@ def run_baseline_vs_candidate_training(
     output_dir: Path,
     force: bool = False,
     random_state: int = 42,
+    mlflow_tracking_uri: str | None = None,
+    mlflow_artifact_root: Path | None = None,
+    mlflow_experiment_name: str | None = None,
+    mlflow_registered_model_name: str | None = None,
+    promote_winner: bool = False,
 ) -> tuple[TrainedModelResult, list[TrainedModelResult], dict[str, float | bool], Path, Path]:
     """Train dummy, linear baseline, and HistGBDT candidate models, select champion, and save."""
     required_cols = [*FEATURE_COLUMNS, TARGET_COLUMN]
@@ -339,12 +347,32 @@ def run_baseline_vs_candidate_training(
     selected = hgb_res if comparison["candidate_is_better"] else ridge_res
     all_results = [dummy_res, ridge_res, hgb_res]
 
+    mlflow_summary_dict: dict[str, Any] | None = None
+    if mlflow_tracking_uri is not None:
+        from mlops_live.tracking.mlflow_tracker import (
+            DEFAULT_EXPERIMENT_NAME,
+            DEFAULT_REGISTERED_MODEL_NAME,
+            log_and_register_training_runs,
+        )
+
+        tracking_summary = log_and_register_training_runs(
+            all_results=all_results,
+            selected=selected,
+            tracking_uri=mlflow_tracking_uri,
+            experiment_name=mlflow_experiment_name or DEFAULT_EXPERIMENT_NAME,
+            registered_model_name=mlflow_registered_model_name or DEFAULT_REGISTERED_MODEL_NAME,
+            artifact_root=mlflow_artifact_root,
+            promote_winner=promote_winner,
+        )
+        mlflow_summary_dict = tracking_summary.to_dict()
+
     model_path, metrics_path = save_model_artifacts(
         selected=selected,
         all_results=all_results,
         baseline_vs_candidate=comparison,
         output_dir=output_dir,
         force=force,
+        mlflow_summary=mlflow_summary_dict,
     )
 
     return selected, all_results, comparison, model_path, metrics_path

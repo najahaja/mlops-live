@@ -19,6 +19,14 @@ from mlops_live.models import (
     evaluate_predictions,
     train_and_evaluate_model,
 )
+from mlops_live.tracking import (
+    CHALLENGER_ALIAS,
+    CHAMPION_ALIAS,
+    build_sqlite_tracking_uri,
+    get_alias_version_info,
+    load_registered_sklearn_model,
+    promote_challenger_to_champion,
+)
 
 
 @pytest.fixture
@@ -114,6 +122,8 @@ def test_train_cli_end_to_end_and_overwrite_protection(
 ) -> None:
     train_path, val_path, _, val_df = synthetic_train_val_splits
     models_dir = tmp_path / "models_out"
+    tracking_db = tmp_path / "test_mlflow.db"
+    artifact_dir = tmp_path / "test_mlruns"
 
     summary = train_cli_main(
         [
@@ -123,6 +133,10 @@ def test_train_cli_end_to_end_and_overwrite_protection(
             str(val_path),
             "--output-dir",
             str(models_dir),
+            "--tracking-db",
+            str(tracking_db),
+            "--artifact-dir",
+            str(artifact_dir),
         ]
     )
 
@@ -130,6 +144,8 @@ def test_train_cli_end_to_end_and_overwrite_protection(
     assert summary.metrics_path == models_dir / "metrics.json"
     assert summary.model_path.exists()
     assert summary.metrics_path.exists()
+    assert tracking_db.exists()
+    assert artifact_dir.exists()
 
     # Both learned models should beat the dummy median baseline on validation MAE
     by_name: dict[str, RegressionMetrics] = {
@@ -144,7 +160,7 @@ def test_train_cli_end_to_end_and_overwrite_protection(
     assert len(preds) == len(val_df)
     assert np.isfinite(preds).all()
 
-    # Verify metrics.json schema and contents
+    # Verify metrics.json schema, models, and MLflow registry aliases
     metrics_payload = json.loads(summary.metrics_path.read_text(encoding="utf-8"))
     assert metrics_payload["selected_model"] == summary.selected_model
     assert metrics_payload["feature_columns"] == FEATURE_COLUMNS
@@ -154,6 +170,19 @@ def test_train_cli_end_to_end_and_overwrite_protection(
         "ridge_baseline",
         "hist_gbdt_candidate",
     }
+    assert "mlflow" in metrics_payload
+    assert metrics_payload["mlflow"]["champion"]["alias"] == CHAMPION_ALIAS
+    assert metrics_payload["mlflow"]["challenger"]["alias"] == CHALLENGER_ALIAS
+    assert len(metrics_payload["mlflow"]["runs"]) == 3
+
+    # Verify loading @champion and @challenger models directly from MLflow Model Registry
+    tracking_uri = build_sqlite_tracking_uri(tracking_db)
+    champion_model = load_registered_sklearn_model(tracking_uri=tracking_uri, alias=CHAMPION_ALIAS)
+    challenger_model = load_registered_sklearn_model(
+        tracking_uri=tracking_uri, alias=CHALLENGER_ALIAS
+    )
+    assert len(champion_model.predict(val_df[FEATURE_COLUMNS])) == len(val_df)
+    assert len(challenger_model.predict(val_df[FEATURE_COLUMNS])) == len(val_df)
 
     # Overwrite protection blocks a second run without --force
     with pytest.raises(FileExistsError, match="Pass --force to overwrite"):
@@ -165,10 +194,18 @@ def test_train_cli_end_to_end_and_overwrite_protection(
                 str(val_path),
                 "--output-dir",
                 str(models_dir),
+                "--tracking-db",
+                str(tracking_db),
+                "--artifact-dir",
+                str(artifact_dir),
             ]
         )
 
-    # Succeeds when --force is explicitly passed
+    # Second run with --force (and without --promote-winner) keeps incumbent @champion on v2
+    # and stages the newly trained winner (v4) as @challenger
+    initial_champ = get_alias_version_info(CHAMPION_ALIAS, tracking_uri=tracking_uri)
+    assert initial_champ is not None
+
     summary_forced = train_cli_main(
         [
             "--train-file",
@@ -177,7 +214,23 @@ def test_train_cli_end_to_end_and_overwrite_protection(
             str(val_path),
             "--output-dir",
             str(models_dir),
+            "--tracking-db",
+            str(tracking_db),
+            "--artifact-dir",
+            str(artifact_dir),
             "--force",
         ]
     )
     assert summary_forced.model_path.exists()
+
+    after_retrain_champ = get_alias_version_info(CHAMPION_ALIAS, tracking_uri=tracking_uri)
+    after_retrain_chall = get_alias_version_info(CHALLENGER_ALIAS, tracking_uri=tracking_uri)
+    assert after_retrain_champ == initial_champ
+    assert after_retrain_chall is not None
+    assert after_retrain_chall[0] != initial_champ[0]
+
+    # Promoting @challenger to @champion updates @champion to the new version
+    new_ver, prev_ver = promote_challenger_to_champion(tracking_uri=tracking_uri)
+    assert prev_ver == initial_champ[0]
+    assert new_ver == after_retrain_chall[0]
+    assert get_alias_version_info(CHAMPION_ALIAS, tracking_uri=tracking_uri)[0] == new_ver

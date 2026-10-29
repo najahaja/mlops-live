@@ -11,6 +11,11 @@ import pandas as pd
 
 from mlops_live.data import validate_parquet_file
 from mlops_live.models import TrainedModelResult, run_baseline_vs_candidate_training
+from mlops_live.tracking import (
+    DEFAULT_EXPERIMENT_NAME,
+    DEFAULT_REGISTERED_MODEL_NAME,
+    build_sqlite_tracking_uri,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("train_models")
@@ -55,6 +60,35 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Overwrite existing model.joblib and metrics.json if present",
     )
+    parser.add_argument(
+        "--tracking-db",
+        type=Path,
+        default=Path("mlflow.db"),
+        help="Path to SQLite database for MLflow tracking and registry (default: mlflow.db)",
+    )
+    parser.add_argument(
+        "--artifact-dir",
+        type=Path,
+        default=Path("mlruns"),
+        help="Directory for MLflow run artifacts (default: mlruns)",
+    )
+    parser.add_argument(
+        "--experiment-name",
+        type=str,
+        default=DEFAULT_EXPERIMENT_NAME,
+        help=f"MLflow experiment name (default: {DEFAULT_EXPERIMENT_NAME})",
+    )
+    parser.add_argument(
+        "--registered-model-name",
+        type=str,
+        default=DEFAULT_REGISTERED_MODEL_NAME,
+        help=f"MLflow registered model name (default: {DEFAULT_REGISTERED_MODEL_NAME})",
+    )
+    parser.add_argument(
+        "--promote-winner",
+        action="store_true",
+        help="Promote the new winning model to @champion even if an incumbent @champion exists",
+    )
     return parser
 
 
@@ -90,12 +124,19 @@ def main(argv: list[str] | None = None) -> TrainingRunSummary:
         len(val_df),
     )
 
+    tracking_uri = build_sqlite_tracking_uri(args.tracking_db)
+
     selected, all_results, comparison, model_path, metrics_path = (
         run_baseline_vs_candidate_training(
             train_df=train_df,
             val_df=val_df,
             output_dir=args.output_dir,
             force=args.force,
+            mlflow_tracking_uri=tracking_uri,
+            mlflow_artifact_root=args.artifact_dir,
+            mlflow_experiment_name=args.experiment_name,
+            mlflow_registered_model_name=args.registered_model_name,
+            promote_winner=args.promote_winner,
         )
     )
 
