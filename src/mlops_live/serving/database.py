@@ -87,4 +87,3 @@ def fetch_recent_predictions(engine: Engine, limit: int = 100) -> list[dict[str,
             }
             for r in rows
         ]
-

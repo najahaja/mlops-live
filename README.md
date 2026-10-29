@@ -3,7 +3,7 @@
 A production-style MLOps platform built around a real, continuously published public dataset:
 **NYC TLC Green Taxi trip records**, used to predict **trip duration (minutes)**.
 
-> Status: **Phase 1–4 complete (Data Pipeline, Baseline & Candidate Models, SQLite MLflow Registry, FastAPI Serving & SQLite Prediction Logging).**
+> Status: **Phase 1–5 complete (Data Pipeline, Baseline & Candidate Models, SQLite MLflow Registry, FastAPI Serving, PSI/KS Drift Monitoring).**
 
 ## Planned capabilities
 
@@ -85,6 +85,17 @@ Start the FastAPI prediction server (`GET /health`, `GET /model-info`, `POST /pr
 
 ```powershell
 python scripts/serve.py --host 127.0.0.1 --port 8000
+```
+
+### Monitor Data & Prediction Drift (PSI + Kolmogorov–Smirnov)
+Evaluate feature and prediction drift against the reference training split (`data/processed/train.parquet`) using Population Stability Index (PSI) and two-sample Kolmogorov–Smirnov (`scipy.stats.ks_2samp`) tests, persisting reports to `reports/generated/drift_report.json` and the `drift_reports` table in `predictions.db`:
+
+```powershell
+# Compare reference training split against validation/holdout batch:
+python scripts/check_drift.py --reference-file data/processed/train.parquet --current-file data/processed/val.parquet
+
+# Or evaluate drift against live logged requests in predictions.db:
+python scripts/check_drift.py --use-predictions-db --predictions-db predictions.db
 ```
 
 ## Data source

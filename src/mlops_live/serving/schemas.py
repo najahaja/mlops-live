@@ -58,4 +58,3 @@ class HealthResponse(BaseModel):
     model_alias: str
     model_source: str
     predictions_logged: int
-

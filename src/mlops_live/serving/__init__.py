@@ -27,4 +27,3 @@ __all__ = [
     "load_serving_model",
     "log_prediction_record",
 ]
-
