@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import html
 from typing import Any
 
 import numpy as np
 from sqlalchemy import Engine
 
 from mlops_live.serving.database import count_logged_predictions, fetch_recent_predictions
+
+
+def _esc(value: Any) -> str:
+    """Safely HTML-escape any dynamic value for text and attribute contexts."""
+    return html.escape(str(value), quote=True)
 
 
 def build_dashboard_summary(
@@ -73,12 +79,12 @@ def render_dashboard_html(summary: dict[str, Any]) -> str:
     for d in summary["drift_reports"]:
         badge = "DRIFT" if d["overall_drift_detected"] else "STABLE"
         color = "#b91c1c" if d["overall_drift_detected"] else "#15803d"
-        cols = ", ".join(d["drifted_columns"]) if d["drifted_columns"] else "None"
+        cols = ", ".join(_esc(c) for c in d["drifted_columns"]) if d["drifted_columns"] else "None"
         drift_rows_html += (
-            f"<tr><td>{d['created_at_utc']}</td>"
-            f"<td>{d['current_source']} ({d['current_rows']} rows)</td>"
-            f"<td>{d['max_psi']:.4f}</td><td>{d['max_ks_stat']:.4f}</td>"
-            f"<td style='color:{color};font-weight:bold'>{badge}</td>"
+            f"<tr><td>{_esc(d['created_at_utc'])}</td>"
+            f"<td>{_esc(d['current_source'])} ({int(d['current_rows'])} rows)</td>"
+            f"<td>{float(d['max_psi']):.4f}</td><td>{float(d['max_ks_stat']):.4f}</td>"
+            f"<td style='color:{color};font-weight:bold'>{_esc(badge)}</td>"
             f"<td>{cols}</td></tr>"
         )
     if not drift_rows_html:
@@ -87,23 +93,24 @@ def render_dashboard_html(summary: dict[str, Any]) -> str:
     audit_rows_html = ""
     for a in summary["lifecycle_audit_logs"]:
         audit_rows_html += (
-            f"<tr><td>{a['created_at_utc']}</td><td><code>{a['event_type']}</code></td>"
-            f"<td>{a['actor']}</td><td>v{a['previous_champion_version']} &rarr; "
-            f"v{a['new_champion_version']}</td><td>v{a['challenger_version']}</td>"
-            f"<td>{a['notes']}</td></tr>"
+            f"<tr><td>{_esc(a['created_at_utc'])}</td><td><code>{_esc(a['event_type'])}</code></td>"
+            f"<td>{_esc(a['actor'])}</td><td>v{_esc(a['previous_champion_version'])} &rarr; "
+            f"v{_esc(a['new_champion_version'])}</td><td>v{_esc(a['challenger_version'])}</td>"
+            f"<td>{_esc(a['notes'])}</td></tr>"
         )
     if not audit_rows_html:
         audit_rows_html = "<tr><td colspan='6'>No lifecycle governance events logged yet.</td></tr>"
 
     pred_rows_html = ""
     for p in summary["recent_predictions"]:
+        req_prefix = _esc(str(p["request_id"])[:8])
         pred_rows_html += (
-            f"<tr><td>{p['created_at_utc']}</td><td><code>{p['request_id'][:8]}</code></td>"
-            f"<td>{p['PULocationID']} &rarr; {p['DOLocationID']}</td>"
-            f"<td>{p['trip_distance']:.2f} mi</td>"
-            f"<td><b>{p['predicted_duration_minutes']:.2f} min</b></td>"
-            f"<td>{p['latency_ms']:.2f} ms</td>"
-            f"<td>{p['model_name']} (v{p['model_version']})</td></tr>"
+            f"<tr><td>{_esc(p['created_at_utc'])}</td><td><code>{req_prefix}</code></td>"
+            f"<td>{int(p['PULocationID'])} &rarr; {int(p['DOLocationID'])}</td>"
+            f"<td>{float(p['trip_distance']):.2f} mi</td>"
+            f"<td><b>{float(p['predicted_duration_minutes']):.2f} min</b></td>"
+            f"<td>{float(p['latency_ms']):.2f} ms</td>"
+            f"<td>{_esc(p['model_name'])} (v{_esc(p['model_version'])})</td></tr>"
         )
     if not pred_rows_html:
         pred_rows_html = "<tr><td colspan='7'>No predictions logged yet.</td></tr>"
@@ -139,20 +146,20 @@ def render_dashboard_html(summary: dict[str, Any]) -> str:
   <p>NYC Green Taxi Trip Duration Service &bull; Native Local SQLite &amp; MLflow Registry</p>
   <div class="cards">
     <div class="card">
-      <div class="label">Active Model (@{am["model_alias"]})</div>
-      <div class="val">{am["model_name"]} (v{am["model_version"]})</div>
+      <div class="label">Active Model (@{_esc(am["model_alias"])})</div>
+      <div class="val">{_esc(am["model_name"])} (v{_esc(am["model_version"])})</div>
     </div>
     <div class="card">
       <div class="label">Total Predictions Logged</div>
-      <div class="val">{summary["total_predictions_logged"]}</div>
+      <div class="val">{int(summary["total_predictions_logged"])}</div>
     </div>
     <div class="card">
       <div class="label">Latency (Mean / P95)</div>
-      <div class="val">{lat["mean_ms"]} / {lat["p95_ms"]} ms</div>
+      <div class="val">{_esc(lat["mean_ms"])} / {_esc(lat["p95_ms"])} ms</div>
     </div>
     <div class="card">
       <div class="label">Predicted Duration (Mean)</div>
-      <div class="val">{pred_stats["mean_duration_min"]} min</div>
+      <div class="val">{_esc(pred_stats["mean_duration_min"])} min</div>
     </div>
   </div>
   <h2>Data &amp; Prediction Drift History (PSI &amp; KS)</h2>

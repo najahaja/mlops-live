@@ -367,6 +367,81 @@ def run_retraining_workflow(
     )
 
 
+def _sync_production_fallback_artifacts(
+    pipeline: Any,
+    fallback_model_path: Path,
+    champion_version: str,
+    champion_model_name: str,
+    prefer_challenger_metrics: bool = False,
+) -> None:
+    """Safely update fallback model.joblib and companion metrics.json with .tmp/.bak rollback."""
+    fallback_model_path.parent.mkdir(parents=True, exist_ok=True)
+    metrics_path = fallback_model_path.with_name("metrics.json")
+    challenger_metrics_path = fallback_model_path.parent / "challenger" / "metrics.json"
+
+    source_metrics_path: Path | None = None
+    if prefer_challenger_metrics and challenger_metrics_path.exists():
+        source_metrics_path = challenger_metrics_path
+    elif metrics_path.exists():
+        source_metrics_path = metrics_path
+
+    targets = [fallback_model_path]
+    if source_metrics_path is not None:
+        targets.append(metrics_path)
+
+    temp_paths = {t: t.with_name(f"{t.name}.tmp") for t in targets}
+    backup_paths = {t: t.with_name(f"{t.name}.bak") for t in targets}
+    existed_before = {t: t.exists() for t in targets}
+
+    try:
+        joblib.dump(pipeline, temp_paths[fallback_model_path])
+        loaded_check = joblib.load(temp_paths[fallback_model_path])
+        if not hasattr(loaded_check, "predict"):
+            raise ValueError("Staged fallback model artifact failed reload verification.")
+
+        if source_metrics_path is not None:
+            payload = json.loads(source_metrics_path.read_text(encoding="utf-8"))
+            payload["selected_model"] = champion_model_name
+            if isinstance(payload.get("mlflow"), dict):
+                payload["mlflow"]["champion"] = {
+                    "version": champion_version,
+                    "model_name": champion_model_name,
+                    "alias": CHAMPION_ALIAS,
+                }
+            temp_paths[metrics_path].write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            json.loads(temp_paths[metrics_path].read_text(encoding="utf-8"))
+
+        for target in targets:
+            if existed_before[target] and target.exists():
+                target.replace(backup_paths[target])
+
+        for target in targets:
+            temp_paths[target].replace(target)
+    except Exception:
+        for target in targets:
+            if existed_before[target]:
+                bak = backup_paths[target]
+                if bak.exists():
+                    try:
+                        bak.replace(target)
+                    except OSError as err:
+                        logger.error("Failed to restore %s from %s: %s", target, bak, err)
+            elif target.exists():
+                try:
+                    target.unlink()
+                except OSError as err:
+                    logger.error("Failed to remove partial artifact %s: %s", target, err)
+        raise
+    else:
+        for bak in backup_paths.values():
+            if bak.exists():
+                bak.unlink()
+    finally:
+        for tmp in temp_paths.values():
+            if tmp.exists():
+                tmp.unlink()
+
+
 def approve_and_promote_challenger(
     tracking_uri: str,
     approved_by: str,
@@ -420,6 +495,22 @@ def approve_and_promote_challenger(
                 f"RMSE={evaluation.champion_metrics.rmse:.4f}). Pass --force-promote to override."
             )
 
+    # Load and verify the @challenger model artifact before mutating aliases or fallback files
+    promoted_pipeline = load_registered_sklearn_model(
+        tracking_uri=tracking_uri,
+        alias=CHALLENGER_ALIAS,
+        registered_model_name=registered_model_name,
+    )
+
+    if fallback_model_path is not None:
+        _sync_production_fallback_artifacts(
+            pipeline=promoted_pipeline,
+            fallback_model_path=fallback_model_path,
+            champion_version=chall_ver,
+            champion_model_name=chall_name,
+            prefer_challenger_metrics=True,
+        )
+
     client = MlflowClient(tracking_uri=tracking_uri)
     if champ_info is not None and prev_champ_ver != chall_ver:
         client.set_registered_model_alias(
@@ -433,21 +524,6 @@ def approve_and_promote_challenger(
         alias=CHAMPION_ALIAS,
         version=chall_ver,
     )
-
-    if fallback_model_path is not None:
-        promoted_pipeline = load_registered_sklearn_model(
-            tracking_uri=tracking_uri,
-            alias=CHAMPION_ALIAS,
-            registered_model_name=registered_model_name,
-        )
-        fallback_model_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = fallback_model_path.with_name(f"{fallback_model_path.name}.tmp")
-        try:
-            joblib.dump(promoted_pipeline, tmp_path)
-            tmp_path.replace(fallback_model_path)
-        finally:
-            if tmp_path.exists():
-                tmp_path.unlink()
 
     notes = (
         f"Approved by '{approver}': promoted @{CHALLENGER_ALIAS} v{chall_ver} ({chall_name}) "
@@ -526,6 +602,15 @@ def rollback_champion_model(
     version_uri = f"models:/{registered_model_name}/{resolved_target_ver}"
     restored_pipeline = mlflow.sklearn.load_model(version_uri)
 
+    if fallback_model_path is not None:
+        _sync_production_fallback_artifacts(
+            pipeline=restored_pipeline,
+            fallback_model_path=fallback_model_path,
+            champion_version=resolved_target_ver,
+            champion_model_name=target_model_name,
+            prefer_challenger_metrics=False,
+        )
+
     if current_champ is not None and current_champ_ver != resolved_target_ver:
         client.set_registered_model_alias(
             name=registered_model_name,
@@ -538,16 +623,6 @@ def rollback_champion_model(
         alias=CHAMPION_ALIAS,
         version=resolved_target_ver,
     )
-
-    if fallback_model_path is not None:
-        fallback_model_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = fallback_model_path.with_name(f"{fallback_model_path.name}.tmp")
-        try:
-            joblib.dump(restored_pipeline, tmp_path)
-            tmp_path.replace(fallback_model_path)
-        finally:
-            if tmp_path.exists():
-                tmp_path.unlink()
 
     chall_info = get_alias_version_info(
         alias=CHALLENGER_ALIAS,

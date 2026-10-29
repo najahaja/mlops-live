@@ -156,3 +156,97 @@ def test_check_drift_cli_with_parquet_and_sqlite_predictions_db(tmp_path: Path) 
         assert "trip_distance" in history[0]["drifted_columns"]
     finally:
         engine.dispose()
+
+
+def test_weekday_drift_marks_insufficient_data_when_weekdays_missing() -> None:
+    """Short window missing Mon (0) and Sun (6) must be marked insufficient_data, not drifted."""
+    ref_df = _make_taxi_df(400, seed=101)
+    cur_df = _make_taxi_df(250, seed=102)
+    rng = np.random.default_rng(103)
+    # Restrict comparison window to Tue-Sat (1..5), simulating a 4-5 day chronological split
+    cur_df["pickup_day_of_week"] = rng.choice([1, 2, 3, 4, 5], size=len(cur_df)).astype("int64")
+
+    report = evaluate_dataset_drift(ref_df, cur_df)
+    dow_metrics = report.feature_drift["pickup_day_of_week"]
+
+    assert dow_metrics.evaluation_status == "insufficient_data"
+    assert dow_metrics.psi_severity == "insufficient_data"
+    assert dow_metrics.drift_detected is False
+    assert dow_metrics.status_reason is not None
+    assert "Missing weekday(s) [0, 6]" in dow_metrics.status_reason
+    assert report.insufficient_data_columns == ["pickup_day_of_week"]
+    assert report.drifted_columns == []
+    assert report.overall_drift_detected is False
+    assert report.retraining_recommended is False
+
+
+def test_weekday_drift_marks_insufficient_data_for_sparse_weekdays_or_short_span() -> None:
+    """All 7 weekday integers present with < 5 rows on some weekdays must be insufficient_data."""
+    ref_df = _make_taxi_df(400, seed=201)
+    cur_df = _make_taxi_df(200, seed=202)
+
+    # All 7 distinct values (0..6) exist, but 0 (Mon) and 6 (Sun) have only 2 rows each (< 5)
+    sparse_days = np.array([0, 0, 6, 6, 5] + [1, 2, 3, 4, 5] * 39, dtype="int64")
+    cur_df["pickup_day_of_week"] = sparse_days
+
+    sparse_report = evaluate_dataset_drift(ref_df, cur_df)
+    dow_sparse = sparse_report.feature_drift["pickup_day_of_week"]
+    assert dow_sparse.evaluation_status == "insufficient_data"
+    assert dow_sparse.psi_severity == "insufficient_data"
+    assert dow_sparse.drift_detected is False
+    assert dow_sparse.status_reason is not None
+    assert "Insufficient observations" in dow_sparse.status_reason
+    assert sparse_report.insufficient_data_columns == ["pickup_day_of_week"]
+    assert sparse_report.overall_drift_detected is False
+
+    # Even with >= 5 counts per integer, if lpep_pickup_datetime spans < 7 days -> insufficient_data
+    cur_with_short_ts = _make_taxi_df(400, seed=203)
+    cur_with_short_ts["lpep_pickup_datetime"] = pd.date_range(
+        "2024-01-23 08:00:00", periods=len(cur_with_short_ts), freq="10min"
+    )
+    ts_report = evaluate_dataset_drift(ref_df, cur_with_short_ts)
+    dow_ts = ts_report.feature_drift["pickup_day_of_week"]
+    assert dow_ts.evaluation_status == "insufficient_data"
+    assert dow_ts.drift_detected is False
+    assert dow_ts.status_reason is not None
+    assert "< 7 days required" in dow_ts.status_reason
+
+
+def test_weekday_drift_detects_genuine_shift_when_full_week_covered() -> None:
+    """When all 7 weekdays have adequate coverage, genuine weekday skew is detected as drift."""
+    ref_df = _make_taxi_df(420, seed=301)
+    cur_df = _make_taxi_df(420, seed=302)
+
+    # Every weekday 0..6 has >= 10 observations, but weekend share shifts from ~28% to ~80%
+    skewed_weekdays = np.array(
+        [0] * 15 + [1] * 15 + [2] * 15 + [3] * 15 + [4] * 15 + [5] * 170 + [6] * 175,
+        dtype="int64",
+    )
+    cur_df["pickup_day_of_week"] = skewed_weekdays
+
+    report = evaluate_dataset_drift(ref_df, cur_df)
+    dow_metrics = report.feature_drift["pickup_day_of_week"]
+
+    assert dow_metrics.evaluation_status == "evaluated"
+    assert dow_metrics.status_reason is None
+    assert dow_metrics.psi >= 0.25
+    assert dow_metrics.psi_severity == "significant"
+    assert dow_metrics.drift_detected is True
+    assert report.insufficient_data_columns == []
+    assert "pickup_day_of_week" in report.drifted_columns
+    assert report.overall_drift_detected is True
+
+
+def test_overall_drift_aggregation_with_insufficient_weekday_and_drifted_feature() -> None:
+    """Insufficient weekday coverage does not mask genuine drift in another feature."""
+    ref_df = _make_taxi_df(400, seed=401)
+    cur_df = _make_taxi_df(200, seed=402, distance_shift=14.0, duration_shift=28.0)
+    cur_df["pickup_day_of_week"] = 2  # Single weekday only
+
+    report = evaluate_dataset_drift(ref_df, cur_df)
+    assert report.insufficient_data_columns == ["pickup_day_of_week"]
+    assert "pickup_day_of_week" not in report.drifted_columns
+    assert "trip_distance" in report.drifted_columns
+    assert "predicted_duration_minutes" in report.drifted_columns
+    assert report.overall_drift_detected is True
+    assert report.retraining_recommended is True

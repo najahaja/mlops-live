@@ -1,136 +1,173 @@
 # ML-Ops-Live
 
-A production-style MLOps platform built around a real, continuously published public dataset:
-**NYC TLC Green Taxi trip records**, used to predict **trip duration (minutes)**.
+A production-style, local-first MLOps platform built around a real public dataset:
+**NYC TLC Green Taxi trip records**, used to predict **trip duration (`duration_minutes`)** at ride-request time.
 
-> Status: **Phase 1–7 complete (Data Pipeline, Modeling, MLflow Registry, FastAPI Serving & Dashboard, PSI/KS Drift Monitoring, Retraining & Human Approval Lifecycle, Holdout Evaluation, Load Testing & GitHub Actions CI).**
+> **Current Status:** Phases 1–7 implemented and locally verified on Windows 11 / Python 3.11.9 (`44 passed` automated tests, `ruff check` and `ruff format --check` clean).
 
-## Planned capabilities
+---
 
-- Reproducible data ingestion from the official TLC monthly Parquet files
-- Leakage-safe, time-based train/validation/test splits
-- Baseline and candidate models with MLflow experiment tracking
-- FastAPI model serving with persistent prediction records
-- Data/prediction drift monitoring
-- Automated retraining with champion/challenger evaluation
-- Human approval gate and rollback
-- Automated tests and GitHub Actions CI
-- Monitoring dashboard and load testing
+## System Architecture
 
-## Environment
+```mermaid
+flowchart TD
+    TLC["NYC TLC CloudFront Parquet<br/>(green_tripdata_YYYY-MM.parquet)"] --> Ingest["scripts/download_data.py<br/>mlops_live.data.ingest"]
+    Ingest --> Raw["data/raw/*.parquet"]
+    Raw --> Prepare["scripts/prepare_data.py<br/>clean.py + split.py (mergesort)"]
+    Prepare --> Splits["data/processed/<br/>train.parquet (70%)<br/>val.parquet (15%)<br/>test.parquet (15% isolated)"]
 
-- Windows 11, PowerShell, Python 3.11
-- Native local processes (no Docker)
+    Splits --> Train["scripts/train.py<br/>Dummy / Ridge / HistGBDT"]
+    Train --> Registry["SQLite MLflow Registry<br/>(mlflow.db + mlruns/)<br/>@champion & @challenger"]
+    Train --> ProdArtifacts["Production Fallback Artifacts<br/>models/model.joblib & metrics.json"]
 
-## Project layout
+    Registry --> Serve["FastAPI Service (scripts/serve.py)<br/>GET /health, /model-info, /dashboard<br/>POST /predict, /reload-model"]
+    ProdArtifacts -. "Fallback if mlflow.db absent" .-> Serve
+    Serve --> PredDB["SQLite Operational Store (predictions.db)<br/>prediction_logs | drift_reports | model_lifecycle_audit"]
 
+    Splits --> Drift["scripts/check_drift.py<br/>PSI + Two-Sample KS + Weekday Coverage Gate"]
+    PredDB --> Drift
+    Drift --> PredDB
+
+    Drift --> Retrain["scripts/retrain_and_evaluate.py<br/>Stages @challenger & models/challenger/"]
+    Retrain --> Gate["scripts/manage_model.py<br/>Champion vs Challenger Gate<br/>--approve --approved-by / --rollback"]
+    Gate --> Registry
+    Gate --> ProdArtifacts
+    Gate --> PredDB
+
+    Splits --> Holdout["scripts/evaluate_holdout.py<br/>Final Isolated Holdout Evaluation"]
+    Registry --> Holdout
 ```
-configs/          configuration files
-data/raw/         downloaded TLC files (git-ignored)
-data/interim/     intermediate data (git-ignored)
-data/processed/   model-ready data (git-ignored)
-models/           local model artifacts (git-ignored)
-scripts/          command-line entry points
-src/mlops_live/   application package
-tests/            automated tests
-```
 
-## Setup
+---
 
+## Implementation & Verification Status Matrix
+
+| Capability | Implementation Status | Verification Scope |
+| :--- | :--- | :--- |
+| **Data Ingestion, Cleaning & Chronological Splitting** | Implemented (`src/mlops_live/data/`, `scripts/download_data.py`, `scripts/prepare_data.py`) | **Locally verified** on real Jan 2024 NYC Green Taxi data (`56,551` raw rows $\rightarrow$ `52,529` cleaned rows) and covered by unit/CLI tests. |
+| **Baseline & Candidate Model Training** | Implemented (`src/mlops_live/models/`, `scripts/train.py`) | **Locally verified** on real `train.parquet` (`36,770` rows) and `val.parquet` (`7,879` rows). |
+| **SQLite MLflow Tracking & Model Registry** | Implemented (`src/mlops_live/tracking/mlflow_tracker.py`) | **Locally verified** with `mlflow.db` + `mlruns/` (`@champion` = `v2`, `@challenger` = `v1`). |
+| **FastAPI Serving, SQLite Logging & HTML Dashboard** | Implemented (`src/mlops_live/serving/`, `scripts/serve.py`) | **Locally verified** (`GET /health`, `GET /model-info`, `POST /predict`, `POST /reload-model`, `GET /dashboard`, `GET /api/dashboard-summary`) with HTML XSS escaping (`html.escape`). |
+| **PSI & Kolmogorov–Smirnov Drift Monitoring** | Implemented (`src/mlops_live/monitoring/drift.py`, `scripts/check_drift.py`) | **Locally verified** with weekday-coverage safeguard (`evaluation_status="insufficient_data"` when `< 7` weekdays or `< 5` samples/weekday). |
+| **Retraining, Human Approval Gate & Rollback** | Implemented (`src/mlops_live/lifecycle/workflow.py`, `scripts/retrain_and_evaluate.py`, `scripts/manage_model.py`) | **Locally verified** via end-to-end automated tests on temporary registries/artifacts and read/eval checks on `mlflow.db`. |
+| **Isolated Holdout Evaluation (`test.parquet`)** | Implemented (`scripts/evaluate_holdout.py`) | **Locally verified** on untouched `data/processed/test.parquet` (`7,880` rows). |
+| **Concurrent Load & Latency Testing** | Implemented (`scripts/load_test.py`) | **Locally verified in-process** using FastAPI `TestClient` across worker threads (not yet benchmarked over an external live HTTP socket). |
+| **GitHub Actions CI Workflow** | Implemented (`.github/workflows/ci.yml`) | **Configured locally, unverified on GitHub** (no Git remote is configured yet; all CI steps pass locally). |
+
+---
+
+## Verified Benchmark Results (January 2024 NYC Green Taxi Dataset)
+
+### 1. Dataset Split Summary (`data/raw/green_tripdata_2024-01.parquet`)
+- **Raw rows:** `56,551` $\rightarrow$ **Cleaned rows:** `52,529` (`92.89%` retained after filtering `1.0 <= duration_minutes <= 60.0`, `0.01 <= trip_distance <= 100.0`, and valid pickup/dropoff zone IDs).
+- **Features (strictly leakage-safe at pickup):** `PULocationID`, `DOLocationID`, `trip_distance`, `passenger_count`, `pickup_hour`, `pickup_day_of_week`.
+- **Chronological partitions (sorted via stable `mergesort`):**
+  - `train.parquet`: `36,770` rows (`2023-12-31 14:38:47` $\rightarrow$ `2024-01-23 07:46:22`)
+  - `val.parquet`: `7,879` rows (`2024-01-23 07:46:37` $\rightarrow$ `2024-01-27 13:37:47`)
+  - `test.parquet`: `7,880` rows (`2024-01-27 13:40:09` $\rightarrow$ `2024-01-31 23:57:29`)
+
+### 2. Validation & Isolated Holdout Test Metrics (`models/metrics.json` & `reports/generated/holdout_test_metrics.json`)
+
+| Model | Registry Alias | Train MAE (min) | Val MAE (min) | Val RMSE (min) | Val $R^2$ | Holdout Test MAE (min) | Holdout Test RMSE (min) | Holdout Test $R^2$ | Holdout Abs Error P50 / P90 / P95 (min) |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `dummy_median` | — | `6.0312` | `6.6407` | `9.7804` | `-0.0975` | — | — | — | — |
+| `ridge_baseline` | `@challenger` (`v1`) | `3.1373` | `3.4161` | `5.2064` | `0.6890` | `3.1997` | `4.8099` | `0.7042` | `2.22` / `6.93` / `9.64` |
+| **`hist_gbdt_candidate`** | **`@champion` (`v2`)** | **`2.4961`** | **`2.9183`** | **`4.7223`** | **`0.7441`** | **`2.7498`** | **`4.3525`** | **`0.7578`** | **`1.68` / `6.28` / `9.00`** |
+
+- **Candidate vs. Baseline Gain:**
+  - **Validation (`7,879` rows):** `-0.4978` min MAE (`-14.57%`), `-0.4842` min RMSE (`-9.30%`), `+0.0552` $R^2$.
+  - **Isolated Holdout Test (`7,880` rows):** `-0.4499` min MAE (`-14.06%`), `-0.4574` min RMSE (`-9.51%`), `+0.0536` $R^2$.
+
+### 3. In-Process Concurrent Load Test (`reports/generated/load_test_report.json`)
+> **Important Note:** `scripts/load_test.py` executes concurrent requests against the FastAPI application in-process using Starlette/FastAPI `TestClient` and a `ThreadPoolExecutor` (including synchronous SQLite prediction logging on every request), rather than over an external live `uvicorn` TCP socket.
+
+| Concurrency | Total Requests | Error Rate | Throughput (`req/s`) | Server Inference P50 / P95 (`ms`) | Client Round-Trip P50 / P95 (`ms`) | SLA Gate (`P95 <= 500 ms`) |
+| ---: | ---: | ---: | ---: | ---: | ---: | :--- |
+| `4` threads | `100` | `0.0%` | `16.04` | `169.16` / `395.03` | `215.82` / `438.44` | **PASSED (`true`)** |
+| `8` threads | `100` | `0.0%` | `19.96` | `304.24` / `493.00` | `373.12` / `565.12` | **FAILED (`false`, CPU thread contention on 2C/4T laptop)** |
+
+---
+
+## Governance, Artifact Safety & Drift Reliability Design
+
+### 1. Pre-Approval Model Artifact Protection
+- **Bootstrap vs. Challenger Staging:** When no `@champion` exists in `mlflow.db` (initial training) or when `--promote-winner` is explicitly supplied, `run_baseline_vs_candidate_training()` writes the winning model to `models/model.joblib` and `models/metrics.json`.
+- **Challenger Isolation During Retraining:** When an incumbent `@champion` already exists in `mlflow.db` and `promote_winner=False` (the default for `scripts/retrain_and_evaluate.py` and `scripts/train.py --force`), the newly trained winner is registered as `@challenger` in MLflow and its local artifacts are written to `models/challenger/model.joblib` and `models/challenger/metrics.json`. The active production fallback files (`models/model.joblib` and `models/metrics.json`) remain untouched until human approval.
+- **Transactional Promotion & Rollback:** `approve_and_promote_challenger()` and `rollback_champion_model()` verify the quantitative evaluation gate first, load and validate the target pipeline from MLflow before mutating aliases, and update `models/model.joblib` + `models/metrics.json` using two-phase `.tmp` staging and `.bak` backup rollback. If either the gate check or artifact write fails, both the MLflow `@champion` alias and local production artifacts remain intact.
+
+### 2. Dashboard XSS Escaping
+- `render_dashboard_html()` in `src/mlops_live/serving/dashboard.py` escapes all dynamic values sourced from SQLite or model metadata (`actor`, `notes`, `event_type`, `model_name`, `model_version`, `current_source`, `drifted_columns`, `request_id`) using `html.escape(..., quote=True)`. Raw unescaped values remain available via the JSON endpoint `GET /api/dashboard-summary`.
+
+### 3. Weekday Coverage Safeguard in Drift Monitoring
+- **Why calendar features require coverage checks:** `pickup_day_of_week` (`0=Monday .. 6=Sunday`) is a 7-day cyclic calendar feature. Comparing a multi-week reference split (`train.parquet`, 23 days covering all 7 weekdays) against a chronological slice shorter than a full week (such as `val.parquet`, which spans 4.2 days from Tuesday to Saturday and has zero Sunday or Monday trips) produces a high raw PSI (`2.03`) solely because two weekdays are unobserved in the window.
+- **Principled safeguard (`check_weekday_coverage`):** Before flagging drift on `pickup_day_of_week`, `evaluate_column_drift()` verifies that:
+  1. If `lpep_pickup_datetime` is present on the comparison DataFrame, the window spans at least 7 calendar days (`>= 6.0` elapsed 24-hour periods).
+  2. Every weekday present in the reference dataset is observed in the comparison window.
+  3. Every expected weekday has at least `min_weekday_count = 5` observations (Cochran's minimum cell support for categorical goodness-of-fit).
+- **Explicit `insufficient_data` reporting:** When weekday coverage is inadequate, `pickup_day_of_week` is neither silently marked as `"none"` (passing) nor added to `drifted_columns`. Instead, its column report sets `evaluation_status = "insufficient_data"`, `psi_severity = "insufficient_data"`, `drift_detected = False`, and records a human-readable `status_reason`, while the top-level `DriftReport` lists `"pickup_day_of_week"` in `insufficient_data_columns`. When all 7 weekdays are adequately covered, genuine weekday distribution shifts are flagged normally.
+- **Remaining Drift Limitations:** Current monitoring evaluates univariate feature and prediction distributions (PSI and two-sample KS) and does not yet ingest delayed ground-truth labels (`actual_duration_minutes`) to compute realized online MAE/RMSE on production traffic.
+
+---
+
+## Reproducible Windows PowerShell Runbook
+
+All commands below use the existing virtual environment (`.\.venv\Scripts\python.exe`) from `D:\Projects\mlops-live`.
+
+### 1. Environment Setup
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements-dev.txt
-python -m pip install -e . --no-deps
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pip install -e . --no-deps
 ```
+*(For an exact transitive lock, install `-r requirements-lock.txt`.)*
 
-For an exact, fully pinned environment use `requirements-lock.txt` instead of `requirements-dev.txt`.
-
-## Checks
-
+### 2. End-to-End Pipeline Execution
 ```powershell
-python -m pytest
-python -m ruff check .
-python -m ruff format --check .
+# Step 1: Ingest raw monthly TLC Green Taxi Parquet data (skips download if already valid)
+.\.venv\Scripts\python.exe scripts\download_data.py --year 2024 --month 1
+
+# Step 2: Clean records, validate chronological boundaries, and write train/val/test splits
+.\.venv\Scripts\python.exe scripts\prepare_data.py --input-file data/raw/green_tripdata_2024-01.parquet --output-dir data/processed
+
+# Step 3: Train Dummy, Ridge, and HistGBDT models, log to MLflow (mlflow.db), and register @champion/@challenger
+.\.venv\Scripts\python.exe scripts\train.py --train-file data/processed/train.parquet --val-file data/processed/val.parquet --output-dir models
+
+# Step 4: Start the FastAPI prediction service & monitoring dashboard
+.\.venv\Scripts\python.exe scripts\serve.py --host 127.0.0.1 --port 8000
+# -> Dashboard HTML: http://127.0.0.1:8000/dashboard
+# -> Dashboard JSON: http://127.0.0.1:8000/api/dashboard-summary
+
+# Step 5: Run PSI & KS drift detection (against a Parquet batch or live SQLite predictions.db)
+.\.venv\Scripts\python.exe scripts\check_drift.py --reference-file data/processed/train.parquet --current-file data/processed/val.parquet
+.\.venv\Scripts\python.exe scripts\check_drift.py --use-predictions-db --predictions-db predictions.db
+
+# Step 6: Run automated retraining (stages candidate in MLflow @challenger and models/challenger/)
+.\.venv\Scripts\python.exe scripts\retrain_and_evaluate.py --only-if-drifted
+
+# Step 7: Inspect registry status, evaluate @champion vs @challenger, approve promotion, or roll back
+.\.venv\Scripts\python.exe scripts\manage_model.py --status
+.\.venv\Scripts\python.exe scripts\manage_model.py --evaluate --eval-file data/processed/val.parquet
+.\.venv\Scripts\python.exe scripts\manage_model.py --approve --approved-by najahaja
+.\.venv\Scripts\python.exe scripts\manage_model.py --rollback-previous --approved-by najahaja --reason "rollback_check"
+.\.venv\Scripts\python.exe scripts\manage_model.py --rollback-to-version 2 --approved-by najahaja
+
+# Step 8: Run isolated holdout evaluation on test.parquet and in-process load test
+.\.venv\Scripts\python.exe scripts\evaluate_holdout.py --test-file data/processed/test.parquet
+.\.venv\Scripts\python.exe scripts\load_test.py --num-requests 100 --concurrency 4
 ```
 
-## Usage
-
-### Ingest Data
-Download monthly Green Taxi parquet data directly from NYC TLC:
-
+### 3. Quality, Security & Regression Checks
 ```powershell
-python scripts/download_data.py --year 2024 --month 1
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe -m ruff format --check .
+.\.venv\Scripts\python.exe -m pytest
 ```
 
-### Prepare Data
-Clean raw records, extract leakage-safe features, and write chronological train/validation/test splits (`data/processed/train.parquet`, `val.parquet`, `test.parquet`):
+---
 
-```powershell
-python scripts/prepare_data.py --input-file data/raw/green_tripdata_2024-01.parquet --output-dir data/processed
-```
-(Pass `--force` to overwrite existing split files.)
-
-### Train & Evaluate Baseline vs. Candidate Models (with MLflow Tracking & Registry)
-Train the median dummy reference, one-hot `Ridge` linear baseline, and target-encoded `HistGradientBoostingRegressor` candidate on `train.parquet`, evaluate on `val.parquet` (keeping `test.parquet` isolated), log runs to SQLite-backed MLflow (`mlflow.db` + `mlruns/`), register `@champion` and `@challenger` model versions, and save `models/model.joblib` and `models/metrics.json`:
-
-```powershell
-python scripts/train.py --train-file data/processed/train.parquet --val-file data/processed/val.parquet --output-dir models
-```
-(Pass `--force` to overwrite existing model artifacts; pass `--promote-winner` to promote a newly trained winner over an existing `@champion`.)
-
-### Serve Model via FastAPI (with SQLite Prediction Logging)
-Start the FastAPI prediction server (`GET /health`, `GET /model-info`, `POST /predict`, `POST /reload-model`), backed by the registered `@champion` model in `mlflow.db` (or `models/model.joblib` fallback) and persisting every prediction request to `predictions.db`:
-
-```powershell
-python scripts/serve.py --host 127.0.0.1 --port 8000
-```
-
-### Monitor Data & Prediction Drift (PSI + Kolmogorov–Smirnov)
-Evaluate feature and prediction drift against the reference training split (`data/processed/train.parquet`) using Population Stability Index (PSI) and two-sample Kolmogorov–Smirnov (`scipy.stats.ks_2samp`) tests, persisting reports to `reports/generated/drift_report.json` and the `drift_reports` table in `predictions.db`:
-
-```powershell
-# Compare reference training split against validation/holdout batch:
-python scripts/check_drift.py --reference-file data/processed/train.parquet --current-file data/processed/val.parquet
-
-# Or evaluate drift against live logged requests in predictions.db:
-python scripts/check_drift.py --use-predictions-db --predictions-db predictions.db
-```
-
-### Automated Retraining, Champion/Challenger Gate, Human Approval & Rollback
-Run drift-aware retraining (which stages the new winner as `@challenger` without overwriting `@champion`), evaluate `@champion` vs. `@challenger`, require explicit human approval (`--approve --approved-by`) for promotion, or roll back instantly:
-
-```powershell
-# Retrain and stage new @challenger (never auto-promotes over incumbent @champion):
-python scripts/retrain_and_evaluate.py --only-if-drifted
-
-# Inspect registry aliases (@champion, @challenger, @previous_champion) and audit logs:
-python scripts/manage_model.py --status
-
-# Evaluate @champion vs @challenger side-by-side:
-python scripts/manage_model.py --evaluate --eval-file data/processed/val.parquet
-
-# Promote @challenger to @champion with human approval:
-python scripts/manage_model.py --approve --approved-by najahaja
-
-# Roll back @champion to @previous_champion or an explicit version:
-python scripts/manage_model.py --rollback-previous --approved-by najahaja --reason "rollback_check"
-python scripts/manage_model.py --rollback-to-version 2 --approved-by najahaja
-```
-
-### Live Monitoring Dashboard, Load Testing & Holdout Evaluation
-Inspect live serving metrics, PSI/KS drift reports, and lifecycle audit history in your browser at `http://127.0.0.1:8000/dashboard` (or JSON at `GET /api/dashboard-summary`), run concurrent load testing, and evaluate the final isolated holdout test split (`data/processed/test.parquet`):
-
-```powershell
-# Evaluate @champion and @challenger on the isolated holdout test split (test.parquet):
-python scripts/evaluate_holdout.py --test-file data/processed/test.parquet
-
-# Run concurrent load & SLA latency testing against the FastAPI prediction service:
-python scripts/load_test.py --num-requests 100 --concurrency 4
-```
-
-## Data source
+## Data Source
 
 NYC Taxi & Limousine Commission (TLC) Trip Record Data:
 https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page

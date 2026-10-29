@@ -20,6 +20,9 @@ from mlops_live.serving.database import Base, create_prediction_engine, fetch_re
 logger = logging.getLogger(__name__)
 
 CATEGORICAL_DRIFT_COLUMNS = {"PULocationID", "DOLocationID", "pickup_hour", "pickup_day_of_week"}
+WEEKDAY_CALENDAR_COLUMNS = {"pickup_day_of_week"}
+DEFAULT_MIN_WEEKDAY_COUNT = 5
+MIN_CALENDAR_DAYS_FOR_WEEKDAY_DRIFT = 6.0
 EPSILON = 1e-4
 
 
@@ -54,6 +57,8 @@ class ColumnDriftMetrics(NamedTuple):
     reference_mean: float
     current_mean: float
     drift_detected: bool
+    evaluation_status: str = "evaluated"
+    status_reason: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize column drift metrics to a dictionary."""
@@ -67,6 +72,8 @@ class ColumnDriftMetrics(NamedTuple):
             "reference_mean": round(float(self.reference_mean), 4),
             "current_mean": round(float(self.current_mean), 4),
             "drift_detected": bool(self.drift_detected),
+            "evaluation_status": self.evaluation_status,
+            "status_reason": self.status_reason,
         }
 
 
@@ -86,6 +93,7 @@ class DriftReport(NamedTuple):
     drifted_columns: list[str]
     overall_drift_detected: bool
     retraining_recommended: bool
+    insufficient_data_columns: list[str] = []
 
     def to_dict(self) -> dict[str, Any]:
         """Return JSON-serializable drift report dictionary."""
@@ -103,6 +111,7 @@ class DriftReport(NamedTuple):
             "overall_drift_detected": self.overall_drift_detected,
             "retraining_recommended": self.retraining_recommended,
             "drifted_columns": self.drifted_columns,
+            "insufficient_data_columns": self.insufficient_data_columns,
             "feature_drift": {k: v.to_dict() for k, v in self.feature_drift.items()},
             "prediction_drift": (
                 self.prediction_drift.to_dict() if self.prediction_drift is not None else None
@@ -196,6 +205,58 @@ def compute_ks_test(
     return float(res.statistic), float(res.pvalue)
 
 
+def check_weekday_coverage(
+    reference: pd.Series | np.ndarray,
+    current: pd.Series | np.ndarray,
+    min_weekday_count: int = DEFAULT_MIN_WEEKDAY_COUNT,
+    pickup_timestamps: pd.Series | None = None,
+) -> tuple[bool, str | None]:
+    """Verify whether a calendar weekday column has sufficient multi-day coverage for PSI.
+
+    A weekday distribution comparison against a multi-week reference requires:
+    1. If pickup timestamps are present, the comparison window spans at least 7 calendar days.
+    2. Every weekday present in the reference set (0=Mon .. 6=Sun) is observed in the current
+       window.
+    3. Every expected weekday has at least `min_weekday_count` observations (default: 5,
+       following Cochran's minimum cell support for categorical goodness-of-fit).
+    """
+    if pickup_timestamps is not None and len(pickup_timestamps) > 0:
+        ts = pd.to_datetime(pickup_timestamps)
+        span_days = float((ts.max() - ts.min()).total_seconds() / 86400.0)
+        if span_days < MIN_CALENDAR_DAYS_FOR_WEEKDAY_DRIFT:
+            return (
+                False,
+                f"Comparison window spans {span_days:.2f} calendar days (< 7 days required).",
+            )
+
+    ref_days = pd.Series(np.asarray(reference, dtype=np.int64))
+    cur_days = pd.Series(np.asarray(current, dtype=np.int64))
+    expected_weekdays = sorted(set(ref_days.unique().tolist()))
+    cur_counts = cur_days.value_counts().to_dict()
+
+    missing_weekdays = [int(d) for d in expected_weekdays if cur_counts.get(d, 0) == 0]
+    if missing_weekdays:
+        return (
+            False,
+            f"Missing weekday(s) {missing_weekdays} in comparison window; full 7-weekday cycle "
+            "is required.",
+        )
+
+    sparse_weekdays = {
+        int(d): int(cur_counts.get(d, 0))
+        for d in expected_weekdays
+        if cur_counts.get(d, 0) < min_weekday_count
+    }
+    if sparse_weekdays:
+        return (
+            False,
+            f"Insufficient observations (< {min_weekday_count} per weekday) for weekday(s) "
+            f"{sparse_weekdays}.",
+        )
+
+    return True, None
+
+
 def evaluate_column_drift(
     column: str,
     reference: pd.Series | np.ndarray,
@@ -204,6 +265,8 @@ def evaluate_column_drift(
     psi_threshold: float = 0.25,
     ks_threshold: float = 0.10,
     ks_alpha: float = 0.01,
+    min_weekday_count: int = DEFAULT_MIN_WEEKDAY_COUNT,
+    pickup_timestamps: pd.Series | None = None,
 ) -> ColumnDriftMetrics:
     """Evaluate PSI and KS drift for a single column."""
     ref_arr = np.asarray(reference, dtype=np.float64)
@@ -211,6 +274,29 @@ def evaluate_column_drift(
 
     psi_val = compute_psi(ref_arr, cur_arr, is_categorical=is_categorical)
     ks_stat, ks_pval = compute_ks_test(ref_arr, cur_arr)
+
+    if column in WEEKDAY_CALENDAR_COLUMNS:
+        evaluable, reason = check_weekday_coverage(
+            reference=ref_arr,
+            current=cur_arr,
+            min_weekday_count=min_weekday_count,
+            pickup_timestamps=pickup_timestamps,
+        )
+        if not evaluable:
+            return ColumnDriftMetrics(
+                column=column,
+                is_categorical=is_categorical,
+                psi=psi_val,
+                psi_severity="insufficient_data",
+                ks_statistic=ks_stat,
+                ks_p_value=ks_pval,
+                reference_mean=float(np.mean(ref_arr)),
+                current_mean=float(np.mean(cur_arr)),
+                drift_detected=False,
+                evaluation_status="insufficient_data",
+                status_reason=reason,
+            )
+
     severity = classify_psi_severity(psi_val, significant_threshold=psi_threshold)
 
     psi_drifted = psi_val >= psi_threshold
@@ -227,6 +313,8 @@ def evaluate_column_drift(
         reference_mean=float(np.mean(ref_arr)),
         current_mean=float(np.mean(cur_arr)),
         drift_detected=drift_detected,
+        evaluation_status="evaluated",
+        status_reason=None,
     )
 
 
@@ -240,6 +328,7 @@ def evaluate_dataset_drift(
     psi_threshold: float = 0.25,
     ks_threshold: float = 0.10,
     ks_alpha: float = 0.01,
+    min_weekday_count: int = DEFAULT_MIN_WEEKDAY_COUNT,
 ) -> DriftReport:
     """Evaluate feature and prediction/target drift between reference and current datasets."""
     if reference_df.empty or current_df.empty:
@@ -250,8 +339,13 @@ def evaluate_dataset_drift(
         if missing:
             raise ValueError(f"'{name}' is missing required feature columns: {missing}")
 
+    pickup_timestamps = (
+        current_df["lpep_pickup_datetime"] if "lpep_pickup_datetime" in current_df.columns else None
+    )
+
     feature_drift: dict[str, ColumnDriftMetrics] = {}
     drifted_columns: list[str] = []
+    insufficient_data_columns: list[str] = []
 
     for col in FEATURE_COLUMNS:
         is_cat = col in CATEGORICAL_DRIFT_COLUMNS
@@ -263,9 +357,13 @@ def evaluate_dataset_drift(
             psi_threshold=psi_threshold,
             ks_threshold=ks_threshold,
             ks_alpha=ks_alpha,
+            min_weekday_count=min_weekday_count,
+            pickup_timestamps=pickup_timestamps if col in WEEKDAY_CALENDAR_COLUMNS else None,
         )
         feature_drift[col] = col_metrics
-        if col_metrics.drift_detected:
+        if col_metrics.evaluation_status != "evaluated":
+            insufficient_data_columns.append(col)
+        elif col_metrics.drift_detected:
             drifted_columns.append(col)
 
     # Determine prediction / target series if provided or present in DataFrames
@@ -312,6 +410,7 @@ def evaluate_dataset_drift(
         drifted_columns=drifted_columns,
         overall_drift_detected=overall_drift,
         retraining_recommended=retraining_recommended,
+        insufficient_data_columns=insufficient_data_columns,
     )
 
 
@@ -338,8 +437,9 @@ def save_drift_report(
         all_cols = list(report.feature_drift.values())
         if report.prediction_drift is not None:
             all_cols.append(report.prediction_drift)
-        max_psi = max((c.psi for c in all_cols), default=0.0)
-        max_ks = max((c.ks_statistic for c in all_cols), default=0.0)
+        evaluable_cols = [c for c in all_cols if c.evaluation_status == "evaluated"]
+        max_psi = max((c.psi for c in evaluable_cols), default=0.0)
+        max_ks = max((c.ks_statistic for c in evaluable_cols), default=0.0)
 
         with Session(db_engine) as session, session.begin():
             row = DriftReportRecord(

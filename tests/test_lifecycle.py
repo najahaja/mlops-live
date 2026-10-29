@@ -92,6 +92,11 @@ def test_complete_retrain_evaluate_approve_and_rollback_lifecycle(
     assert status_initial["champion"]["version"] == "2"
     assert status_initial["challenger"]["version"] == "1"
 
+    prod_model_path = models_dir / "model.joblib"
+    prod_metrics_path = models_dir / "metrics.json"
+    initial_model_bytes = prod_model_path.read_bytes()
+    initial_metrics_text = prod_metrics_path.read_text(encoding="utf-8")
+
     # 2. Gate blocks promoting inferior @challenger v1 over @champion v2 without --force-promote
     with pytest.raises(ValueError, match="did not pass promotion gate"):
         manage_model_main(
@@ -106,11 +111,14 @@ def test_complete_retrain_evaluate_approve_and_rollback_lifecycle(
                 "--predictions-db",
                 str(predictions_db),
                 "--fallback-model",
-                str(models_dir / "model.joblib"),
+                str(prod_model_path),
             ]
         )
+    assert prod_model_path.read_bytes() == initial_model_bytes
+    assert prod_metrics_path.read_text(encoding="utf-8") == initial_metrics_text
 
     # 3. Run automated retraining workflow: stages new @challenger v4 while keeping @champion at v2
+    # and writes candidate artifacts to models/challenger/ without overwriting models/model.joblib
     retrain_res = retrain_main(
         [
             "--train-file",
@@ -133,6 +141,10 @@ def test_complete_retrain_evaluate_approve_and_rollback_lifecycle(
     assert retrain_res.active_champion_version == "2"
     assert retrain_res.staged_challenger_version == "4"
     assert eval_report.exists()
+    assert (models_dir / "challenger" / "model.joblib").exists()
+    assert (models_dir / "challenger" / "metrics.json").exists()
+    assert prod_model_path.read_bytes() == initial_model_bytes
+    assert prod_metrics_path.read_text(encoding="utf-8") == initial_metrics_text
 
     report_payload = json.loads(eval_report.read_text(encoding="utf-8"))
     assert report_payload["champion"]["version"] == "2"
@@ -150,6 +162,46 @@ def test_complete_retrain_evaluate_approve_and_rollback_lifecycle(
                 str(predictions_db),
             ]
         )
+    assert prod_model_path.read_bytes() == initial_model_bytes
+
+    # 4b. Simulate a failure writing the production fallback artifact during approval:
+    # verify MLflow @champion stays at v2 and existing production artifacts remain intact.
+    with pytest.MonkeyPatch.context() as mp:
+        import joblib
+
+        mp.setattr(
+            joblib,
+            "dump",
+            lambda *_a, **_kw: (_ for _ in ()).throw(OSError("Simulated disk write error")),
+        )
+        with pytest.raises(OSError, match="Simulated disk write error"):
+            manage_model_main(
+                [
+                    "--approve",
+                    "--approved-by",
+                    "najahaja",
+                    "--eval-file",
+                    str(val_path),
+                    "--tracking-db",
+                    str(tracking_db),
+                    "--predictions-db",
+                    str(predictions_db),
+                    "--fallback-model",
+                    str(prod_model_path),
+                ]
+            )
+    assert prod_model_path.read_bytes() == initial_model_bytes
+    assert prod_metrics_path.read_text(encoding="utf-8") == initial_metrics_text
+    status_after_failed_promo = manage_model_main(
+        [
+            "--status",
+            "--tracking-db",
+            str(tracking_db),
+            "--predictions-db",
+            str(predictions_db),
+        ]
+    )
+    assert status_after_failed_promo["champion"]["version"] == "2"
 
     # 5. Human approval promotes @challenger v4 -> @champion and sets @previous_champion -> v2
     approval_res = manage_model_main(
@@ -164,12 +216,14 @@ def test_complete_retrain_evaluate_approve_and_rollback_lifecycle(
             "--predictions-db",
             str(predictions_db),
             "--fallback-model",
-            str(models_dir / "model.joblib"),
+            str(prod_model_path),
         ]
     )
     assert approval_res["event_type"] == "human_approval_promotion"
     assert approval_res["previous_champion_version"] == "2"
     assert approval_res["new_champion_version"] == "4"
+    promoted_metrics = json.loads(prod_metrics_path.read_text(encoding="utf-8"))
+    assert promoted_metrics["mlflow"]["champion"]["version"] == "4"
 
     status_after_approval = manage_model_main(
         [
@@ -196,12 +250,14 @@ def test_complete_retrain_evaluate_approve_and_rollback_lifecycle(
             "--predictions-db",
             str(predictions_db),
             "--fallback-model",
-            str(models_dir / "model.joblib"),
+            str(prod_model_path),
         ]
     )
     assert rollback_prev_res["event_type"] == "model_rollback"
     assert rollback_prev_res["previous_champion_version"] == "4"
     assert rollback_prev_res["new_champion_version"] == "2"
+    restored_v2_metrics = json.loads(prod_metrics_path.read_text(encoding="utf-8"))
+    assert restored_v2_metrics["mlflow"]["champion"]["version"] == "2"
 
     # 7. Explicit version rollback (--rollback-to-version 1) switches @champion to v1
     rollback_v1_res = manage_model_main(
@@ -215,10 +271,13 @@ def test_complete_retrain_evaluate_approve_and_rollback_lifecycle(
             "--predictions-db",
             str(predictions_db),
             "--fallback-model",
-            str(models_dir / "model.joblib"),
+            str(prod_model_path),
         ]
     )
     assert rollback_v1_res["new_champion_version"] == "1"
+    restored_v1_metrics = json.loads(prod_metrics_path.read_text(encoding="utf-8"))
+    assert restored_v1_metrics["selected_model"] == "ridge_baseline"
+    assert restored_v1_metrics["mlflow"]["champion"]["version"] == "1"
 
     # 8. Verify complete SQLite governance audit trail in predictions.db
     engine = create_prediction_engine(predictions_db)

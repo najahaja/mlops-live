@@ -1,8 +1,10 @@
 from mlops_live.monitoring.drift import (
     CATEGORICAL_DRIFT_COLUMNS,
+    WEEKDAY_CALENDAR_COLUMNS,
     ColumnDriftMetrics,
     DriftReport,
     DriftReportRecord,
+    check_weekday_coverage,
     classify_psi_severity,
     compute_ks_test,
     compute_psi,
@@ -15,9 +17,11 @@ from mlops_live.monitoring.drift import (
 
 __all__ = [
     "CATEGORICAL_DRIFT_COLUMNS",
+    "WEEKDAY_CALENDAR_COLUMNS",
     "ColumnDriftMetrics",
     "DriftReport",
     "DriftReportRecord",
+    "check_weekday_coverage",
     "classify_psi_severity",
     "compute_ks_test",
     "compute_psi",

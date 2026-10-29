@@ -348,11 +348,25 @@ def run_baseline_vs_candidate_training(
     all_results = [dummy_res, ridge_res, hgb_res]
 
     mlflow_summary_dict: dict[str, Any] | None = None
+    effective_output_dir = output_dir
+    effective_force = force
+
     if mlflow_tracking_uri is not None:
         from mlops_live.tracking.mlflow_tracker import (
+            CHAMPION_ALIAS,
             DEFAULT_EXPERIMENT_NAME,
             DEFAULT_REGISTERED_MODEL_NAME,
+            get_alias_version_info,
             log_and_register_training_runs,
+        )
+
+        had_incumbent_champion = (
+            get_alias_version_info(
+                alias=CHAMPION_ALIAS,
+                tracking_uri=mlflow_tracking_uri,
+                registered_model_name=mlflow_registered_model_name or DEFAULT_REGISTERED_MODEL_NAME,
+            )
+            is not None
         )
 
         tracking_summary = log_and_register_training_runs(
@@ -366,12 +380,19 @@ def run_baseline_vs_candidate_training(
         )
         mlflow_summary_dict = tracking_summary.to_dict()
 
+        # If an incumbent @champion existed and promote_winner is False, the newly trained
+        # winner is staged as @challenger. Write its local artifacts to output_dir / "challenger"
+        # so the active production fallback artifacts in output_dir remain untouched until approval.
+        if had_incumbent_champion and not promote_winner:
+            effective_output_dir = output_dir / "challenger"
+            effective_force = True
+
     model_path, metrics_path = save_model_artifacts(
         selected=selected,
         all_results=all_results,
         baseline_vs_candidate=comparison,
-        output_dir=output_dir,
-        force=force,
+        output_dir=effective_output_dir,
+        force=effective_force,
         mlflow_summary=mlflow_summary_dict,
     )
 

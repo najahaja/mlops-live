@@ -201,10 +201,13 @@ def test_train_cli_end_to_end_and_overwrite_protection(
             ]
         )
 
-    # Second run with --force (and without --promote-winner) keeps incumbent @champion on v2
-    # and stages the newly trained winner (v4) as @challenger
+    # Second run with --force (and without --promote-winner) keeps incumbent @champion on v2,
+    # stages the newly trained winner (v4) as @challenger, and writes candidate artifacts to
+    # models_dir / "challenger" without overwriting models_dir / "model.joblib".
     initial_champ = get_alias_version_info(CHAMPION_ALIAS, tracking_uri=tracking_uri)
     assert initial_champ is not None
+    original_model_bytes = (models_dir / "model.joblib").read_bytes()
+    original_metrics_text = (models_dir / "metrics.json").read_text(encoding="utf-8")
 
     summary_forced = train_cli_main(
         [
@@ -221,7 +224,12 @@ def test_train_cli_end_to_end_and_overwrite_protection(
             "--force",
         ]
     )
+    assert summary_forced.model_path == models_dir / "challenger" / "model.joblib"
+    assert summary_forced.metrics_path == models_dir / "challenger" / "metrics.json"
     assert summary_forced.model_path.exists()
+    assert summary_forced.metrics_path.exists()
+    assert (models_dir / "model.joblib").read_bytes() == original_model_bytes
+    assert (models_dir / "metrics.json").read_text(encoding="utf-8") == original_metrics_text
 
     after_retrain_champ = get_alias_version_info(CHAMPION_ALIAS, tracking_uri=tracking_uri)
     after_retrain_chall = get_alias_version_info(CHALLENGER_ALIAS, tracking_uri=tracking_uri)

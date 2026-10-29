@@ -141,19 +141,23 @@ def main(argv: list[str] | None = None) -> DriftReport:
     logger.info("  Current:   %s (%d rows)", report.current_source, report.current_rows)
     for col, m in report.feature_drift.items():
         logger.info(
-            "  Feature %-20s | PSI=%.4f (%s) | KS=%.4f (p=%.4g) | drifted=%s",
+            "  Feature %-20s | status=%-17s | PSI=%.4f (%s) | KS=%.4f (p=%.4g) | drifted=%s",
             col,
+            m.evaluation_status,
             m.psi,
             m.psi_severity,
             m.ks_statistic,
             m.ks_p_value,
             m.drift_detected,
         )
+        if m.status_reason:
+            logger.info("    -> %s: %s", col, m.status_reason)
     if report.prediction_drift is not None:
         pm = report.prediction_drift
         logger.info(
-            "  Prediction %-17s | PSI=%.4f (%s) | KS=%.4f (p=%.4g) | drifted=%s",
+            "  Prediction %-17s | status=%-17s | PSI=%.4f (%s) | KS=%.4f (p=%.4g) | drifted=%s",
             pm.column,
+            pm.evaluation_status,
             pm.psi,
             pm.psi_severity,
             pm.ks_statistic,
@@ -161,10 +165,11 @@ def main(argv: list[str] | None = None) -> DriftReport:
             pm.drift_detected,
         )
     logger.info(
-        "  Overall drift: %s | Retraining recommended: %s | Drifted columns: %s",
+        "  Overall drift: %s | Retraining recommended: %s | Drifted: %s | Insufficient data: %s",
         report.overall_drift_detected,
         report.retraining_recommended,
         report.drifted_columns,
+        report.insufficient_data_columns,
     )
     logger.info("  Saved JSON report: %s", saved_path)
 
