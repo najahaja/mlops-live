@@ -3,7 +3,7 @@
 A production-style MLOps platform built around a real, continuously published public dataset:
 **NYC TLC Green Taxi trip records**, used to predict **trip duration (minutes)**.
 
-> Status: **Phase 1–3 complete (Data Pipeline, Baseline & Candidate Models, SQLite MLflow Tracking & Model Registry).**
+> Status: **Phase 1–4 complete (Data Pipeline, Baseline & Candidate Models, SQLite MLflow Registry, FastAPI Serving & SQLite Prediction Logging).**
 
 ## Planned capabilities
 
@@ -79,6 +79,13 @@ Train the median dummy reference, one-hot `Ridge` linear baseline, and target-en
 python scripts/train.py --train-file data/processed/train.parquet --val-file data/processed/val.parquet --output-dir models
 ```
 (Pass `--force` to overwrite existing model artifacts; pass `--promote-winner` to promote a newly trained winner over an existing `@champion`.)
+
+### Serve Model via FastAPI (with SQLite Prediction Logging)
+Start the FastAPI prediction server (`GET /health`, `GET /model-info`, `POST /predict`, `POST /reload-model`), backed by the registered `@champion` model in `mlflow.db` (or `models/model.joblib` fallback) and persisting every prediction request to `predictions.db`:
+
+```powershell
+python scripts/serve.py --host 127.0.0.1 --port 8000
+```
 
 ## Data source
 

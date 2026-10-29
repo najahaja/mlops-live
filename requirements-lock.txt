@@ -31,6 +31,8 @@ graphene==3.4.3
 graphql-core==3.2.13
 graphql-relay==3.2.0
 h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
 huey==3.5.3
 idna==3.20
 importlib_metadata==9.1.0
