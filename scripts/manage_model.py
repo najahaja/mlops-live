@@ -85,6 +85,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Evaluation Parquet file for promotion gate (default: data/processed/val.parquet)",
     )
     parser.add_argument(
+        "--eval-report",
+        type=Path,
+        default=Path("reports/generated/champion_vs_challenger.json"),
+        help=(
+            "Output JSON report path for --evaluate "
+            "(default: reports/generated/champion_vs_challenger.json)"
+        ),
+    )
+    parser.add_argument(
         "--tracking-db",
         type=Path,
         default=Path("mlflow.db"),
@@ -153,6 +162,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
                 tracking_uri=tracking_uri,
                 eval_source=str(args.eval_file),
                 registered_model_name=DEFAULT_REGISTERED_MODEL_NAME,
+                output_json_path=args.eval_report,
                 db_engine=engine,
             )
             logger.info(

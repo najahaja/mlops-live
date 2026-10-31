@@ -68,6 +68,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="SQLite database for drift and lifecycle audit logs (default: predictions.db)",
     )
     parser.add_argument(
+        "--drift-report",
+        type=Path,
+        default=Path("reports/generated/drift_report.json"),
+        help="Output JSON drift report path (default: reports/generated/drift_report.json)",
+    )
+    parser.add_argument(
         "--eval-report",
         type=Path,
         default=Path("reports/generated/champion_vs_challenger.json"),
@@ -105,6 +111,7 @@ def main(argv: list[str] | None = None) -> RetrainingWorkflowResult:
             experiment_name=DEFAULT_EXPERIMENT_NAME,
             registered_model_name=DEFAULT_REGISTERED_MODEL_NAME,
             only_if_drifted=args.only_if_drifted,
+            drift_report_path=args.drift_report,
             eval_report_path=args.eval_report,
             min_mae_improvement=args.min_mae_improvement,
             db_engine=engine,

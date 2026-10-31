@@ -3,7 +3,7 @@
 A production-style, local-first MLOps platform built around a real public dataset:
 **NYC TLC Green Taxi trip records**, used to predict **trip duration (`duration_minutes`)** at ride-request time.
 
-> **Current Status:** Phases 1–7 implemented and locally verified on Windows 11 / Python 3.11.9 (`51 passed` automated tests, `ruff check` and `ruff format --check` clean).
+> **Current Status:** Phases 1–7 implemented and locally verified on Windows 11 / Python 3.11.9 (`54 passed` automated tests, `ruff check` and `ruff format --check` clean).
 
 ---
 
@@ -162,9 +162,11 @@ python -m venv .venv
 .\.venv\Scripts\python.exe scripts\check_drift.py --use-predictions-db --predictions-db predictions.db
 
 # Step 6: Run automated retraining (stages candidate in MLflow @challenger and models/challenger/)
+# (Optional: pass --drift-report <path> and --eval-report <path> to write reports to custom paths)
 .\.venv\Scripts\python.exe scripts\retrain_and_evaluate.py --only-if-drifted
 
 # Step 7: Inspect registry status, evaluate @champion vs @challenger, approve promotion, or roll back
+# (Optional: pass --eval-report <path> with --evaluate to write the comparison JSON to a custom path)
 .\.venv\Scripts\python.exe scripts\manage_model.py --status
 .\.venv\Scripts\python.exe scripts\manage_model.py --evaluate --eval-file data/processed/val.parquet
 .\.venv\Scripts\python.exe scripts\manage_model.py --approve --approved-by najahaja

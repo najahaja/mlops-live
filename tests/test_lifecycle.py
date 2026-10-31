@@ -4,16 +4,26 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import pytest
+import scripts.manage_model as manage_model_mod
+import scripts.retrain_and_evaluate as retrain_mod
+from scripts.manage_model import build_parser as build_manage_parser
 from scripts.manage_model import main as manage_model_main
+from scripts.retrain_and_evaluate import build_parser as build_retrain_parser
 from scripts.retrain_and_evaluate import main as retrain_main
 from scripts.train import main as train_main
 
 from mlops_live.data import TARGET_COLUMN
-from mlops_live.lifecycle import fetch_lifecycle_audit_logs
+from mlops_live.lifecycle import (
+    ChampionChallengerEvaluation,
+    RetrainingWorkflowResult,
+    fetch_lifecycle_audit_logs,
+)
+from mlops_live.models.evaluate import RegressionMetrics
 from mlops_live.serving import create_prediction_engine
 
 
@@ -290,3 +300,198 @@ def test_complete_retrain_evaluate_approve_and_rollback_lifecycle(
         assert "model_rollback" in event_types
     finally:
         engine.dispose()
+
+
+def test_retrain_and_evaluate_cli_drift_report_argument_and_default(
+    lifecycle_splits: tuple[Path, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify --drift-report defaults, custom path forwarding, and --only-if-drifted behavior."""
+    parser = build_retrain_parser()
+    default_args = parser.parse_args([])
+    assert default_args.drift_report == Path("reports/generated/drift_report.json")
+    assert default_args.eval_report == Path("reports/generated/champion_vs_challenger.json")
+
+    train_path, val_path = lifecycle_splits
+    custom_drift_path = tmp_path / "isolated_drift_report.json"
+    custom_eval_path = tmp_path / "isolated_eval_report.json"
+    pred_db = tmp_path / "isolated_predictions.db"
+    tracking_db = tmp_path / "isolated_mlflow.db"
+
+    captured_kwargs: dict[str, Any] = {}
+
+    def fake_run_retraining_workflow(**kwargs: Any) -> RetrainingWorkflowResult:
+        captured_kwargs.update(kwargs)
+        return RetrainingWorkflowResult(
+            retrained=False,
+            drift_report=None,
+            evaluation=None,
+            selected_candidate_name=None,
+            staged_challenger_version=None,
+            active_champion_version="2",
+        )
+
+    monkeypatch.setattr(retrain_mod, "run_retraining_workflow", fake_run_retraining_workflow)
+
+    # 1. Default --drift-report path forwarded when flag is omitted
+    retrain_main(
+        [
+            "--train-file",
+            str(train_path),
+            "--val-file",
+            str(val_path),
+            "--tracking-db",
+            str(tracking_db),
+            "--predictions-db",
+            str(pred_db),
+        ]
+    )
+    assert captured_kwargs["drift_report_path"] == Path("reports/generated/drift_report.json")
+    assert captured_kwargs["eval_report_path"] == Path(
+        "reports/generated/champion_vs_challenger.json"
+    )
+    assert captured_kwargs["only_if_drifted"] is False
+
+    # 2. Custom --drift-report and --eval-report paths forwarded with --only-if-drifted
+    captured_kwargs.clear()
+    retrain_main(
+        [
+            "--train-file",
+            str(train_path),
+            "--val-file",
+            str(val_path),
+            "--only-if-drifted",
+            "--drift-report",
+            str(custom_drift_path),
+            "--eval-report",
+            str(custom_eval_path),
+            "--tracking-db",
+            str(tracking_db),
+            "--predictions-db",
+            str(pred_db),
+        ]
+    )
+    assert captured_kwargs["drift_report_path"] == custom_drift_path
+    assert captured_kwargs["eval_report_path"] == custom_eval_path
+    assert captured_kwargs["only_if_drifted"] is True
+
+
+def test_retrain_only_if_drifted_writes_to_custom_drift_report_path(
+    lifecycle_splits: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    """Verify --only-if-drifted writes drift JSON to --drift-report and skips retraining."""
+    train_path, _ = lifecycle_splits
+    custom_drift_path = tmp_path / "custom_skip_drift.json"
+    custom_eval_path = tmp_path / "custom_skip_eval.json"
+    pred_db = tmp_path / "skip_predictions.db"
+    tracking_db = tmp_path / "skip_mlflow.db"
+
+    # Compare train_path against itself so drift is guaranteed to be 0.0 (no retraining runs)
+    res = retrain_main(
+        [
+            "--train-file",
+            str(train_path),
+            "--val-file",
+            str(train_path),
+            "--only-if-drifted",
+            "--drift-report",
+            str(custom_drift_path),
+            "--eval-report",
+            str(custom_eval_path),
+            "--tracking-db",
+            str(tracking_db),
+            "--predictions-db",
+            str(pred_db),
+        ]
+    )
+    assert res.retrained is False
+    assert custom_drift_path.exists()
+    assert not custom_eval_path.exists()
+    payload = json.loads(custom_drift_path.read_text(encoding="utf-8"))
+    assert payload["overall_drift_detected"] is False
+    assert payload["retraining_recommended"] is False
+
+
+def test_manage_model_cli_eval_report_argument_and_default(
+    lifecycle_splits: tuple[Path, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify --eval-report defaults and custom path forwarding in scripts/manage_model.py."""
+    parser = build_manage_parser()
+    default_args = parser.parse_args([])
+    assert default_args.eval_report == Path("reports/generated/champion_vs_challenger.json")
+
+    _, val_path = lifecycle_splits
+    custom_eval_path = tmp_path / "custom_manage_eval.json"
+    pred_db = tmp_path / "manage_predictions.db"
+    tracking_db = tmp_path / "manage_mlflow.db"
+
+    captured_kwargs: dict[str, Any] = {}
+
+    def fake_evaluate_champion_vs_challenger(**kwargs: Any) -> ChampionChallengerEvaluation:
+        captured_kwargs.update(kwargs)
+        dummy_metrics = RegressionMetrics(mae=3.0, rmse=4.5, r2=0.72, num_samples=40)
+        return ChampionChallengerEvaluation(
+            created_at_utc="2026-10-30T00:00:00+00:00",
+            eval_source=str(val_path),
+            eval_rows=40,
+            champion_version="2",
+            champion_model_name="hist_gbdt_candidate",
+            champion_metrics=dummy_metrics,
+            challenger_version="4",
+            challenger_model_name="hist_gbdt_candidate",
+            challenger_metrics=dummy_metrics,
+            comparison={
+                "mae_reduction_minutes": 0.0,
+                "mae_reduction_pct": 0.0,
+                "rmse_reduction_minutes": 0.0,
+                "rmse_reduction_pct": 0.0,
+                "r2_gain": 0.0,
+                "candidate_is_better": False,
+            },
+            min_mae_improvement=0.0,
+            gate_passed=True,
+        )
+
+    monkeypatch.setattr(
+        manage_model_mod,
+        "evaluate_champion_vs_challenger",
+        fake_evaluate_champion_vs_challenger,
+    )
+
+    # 1. Default --eval-report path forwarded when flag is omitted
+    manage_model_main(
+        [
+            "--evaluate",
+            "--eval-file",
+            str(val_path),
+            "--tracking-db",
+            str(tracking_db),
+            "--predictions-db",
+            str(pred_db),
+        ]
+    )
+    assert captured_kwargs["output_json_path"] == Path(
+        "reports/generated/champion_vs_challenger.json"
+    )
+
+    # 2. Custom --eval-report path forwarded when flag is provided
+    captured_kwargs.clear()
+    out = manage_model_main(
+        [
+            "--evaluate",
+            "--eval-file",
+            str(val_path),
+            "--eval-report",
+            str(custom_eval_path),
+            "--tracking-db",
+            str(tracking_db),
+            "--predictions-db",
+            str(pred_db),
+        ]
+    )
+    assert captured_kwargs["output_json_path"] == custom_eval_path
+    assert out["gate_passed"] is True
