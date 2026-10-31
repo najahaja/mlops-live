@@ -5,7 +5,7 @@
 A production-style, local-first MLOps platform built around a real public dataset:
 **NYC TLC Green Taxi trip records**, used to predict **trip duration (`duration_minutes`)** at ride-request time.
 
-> **Current Status:** Phases 1–7 implemented and locally verified on Windows 11 / Python 3.11.9 (`76 passed` automated tests, `ruff check` and `ruff format --check` clean).
+> **Current Status:** Phases 1–7 implemented and locally verified on Windows 11 / Python 3.11.9 (`78 passed` automated tests, `ruff check` and `ruff format --check` clean).
 
 ---
 

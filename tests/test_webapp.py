@@ -288,9 +288,10 @@ def test_streamlit_app_renders_and_predicts_without_errors():
     assert not app.exception, app.exception
     assert len(app.tabs) == 5
 
-    app.button[0].click().run()
+    submit_btn = [b for b in app.button if "Predict" in b.label][0]
+    submit_btn.click().run()
     assert not app.exception, app.exception
-    predicted = [m for m in app.metric if m.label == "Predicted trip duration"]
+    predicted = [m for m in app.metric if m.label == "Predicted Trip Duration"]
     assert predicted and predicted[0].value.endswith("minutes")
 
 
@@ -303,7 +304,34 @@ def test_streamlit_app_shows_validation_error_for_invalid_distance():
     app = AppTest.from_file(str(WEBAPP_DIR / "streamlit_app.py"), default_timeout=60)
     app.run()
     app.number_input[0].set_value(0.0)  # trip distance below the 0.01-mile minimum
-    app.button[0].click().run()
+    submit_btn = [b for b in app.button if "Predict" in b.label][0]
+    submit_btn.click().run()
     assert not app.exception, app.exception
     assert any("correct the following" in e.value for e in app.error)
-    assert not [m for m in app.metric if m.label == "Predicted trip duration"]
+    assert not [m for m in app.metric if m.label == "Predicted Trip Duration"]
+
+
+def test_no_mojibake_or_encoding_artifacts_in_webapp():
+    """Verify webapp files are free of double-encoded UTF-8 or CP1252 mojibake."""
+    suspicious = [
+        "\u00e2\u20ac\u2014",  # â€”
+        "\u00e2\u20ac\u2013",  # â€“
+        "\u00e2\u20ac\u00a6",  # â€¦
+        "\u00f0\u0178",  # ðŸ
+        "\ufffd",  # replacement character
+        "\u00c3\u00a2",  # double encoded C3 A2
+        "\u00c3\u00b0",  # double encoded C3 B0
+        "\u00c2\u00b2",  # double encoded Â²
+        "\u00c2\u00b7",  # double encoded Â·
+    ]
+    for file_path in WEBAPP_DIR.glob("**/*.py"):
+        content = file_path.read_text(encoding="utf-8")
+        for pattern in suspicious:
+            assert pattern not in content, f"Mojibake pattern {repr(pattern)} in {file_path.name}"
+
+
+def test_streamlit_app_exact_title():
+    """Verify exact title and taxi emoji in streamlit_app.py."""
+    content = (WEBAPP_DIR / "streamlit_app.py").read_text(encoding="utf-8")
+    assert "ML-Ops-Live — NYC Taxi Trip-Duration Prediction & MLOps Platform" in content
+    assert 'page_icon="🚕"' in content
