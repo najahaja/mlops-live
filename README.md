@@ -1,5 +1,7 @@
 # ML-Ops-Live
 
+[![CI](https://github.com/najahaja/mlops-live/actions/workflows/ci.yml/badge.svg)](https://github.com/najahaja/mlops-live/actions/workflows/ci.yml)
+
 A production-style, local-first MLOps platform built around a real public dataset:
 **NYC TLC Green Taxi trip records**, used to predict **trip duration (`duration_minutes`)** at ride-request time.
 
@@ -52,7 +54,7 @@ flowchart TD
 | **Retraining, Human Approval Gate & Rollback** | Implemented (`src/mlops_live/lifecycle/workflow.py`, `scripts/retrain_and_evaluate.py`, `scripts/manage_model.py`) | **Locally verified** via end-to-end automated tests and a 5-step isolated sandbox experiment on real NYC Green Taxi data (`reports/generated/controlled_drift_retraining_report.json`). |
 | **Isolated Holdout & Multi-Month Out-of-Time Evaluation** | Implemented (`scripts/evaluate_holdout.py`) | **Locally verified** on untouched Jan 2024 `data/processed/test.parquet` (`7,880` rows) and full-month Feb 2024 `data/raw/green_tripdata_2024-02.parquet` (`49,660` cleaned rows, `reports/generated/feb_2024_out_of_time_evaluation.json`). |
 | **Concurrent Load & Latency Testing** | Implemented (`scripts/load_test.py`: `--mode in_process` and `--mode http` / `--spawn-server`) | **Locally verified** in both in-process `TestClient` mode (`reports/generated/load_test_report.json`) and live localhost TCP HTTP Uvicorn mode (`reports/generated/http_load_test_report.json`). |
-| **GitHub Actions CI Workflow** | Implemented (`.github/workflows/ci.yml`) | **Configured locally, unverified on GitHub** (no Git remote is configured yet; all CI steps pass locally). |
+| **GitHub Actions CI Workflow** | Implemented (`.github/workflows/ci.yml`) | **Verified locally & on GitHub Actions** (`pip check`, `ruff check`, `ruff format --check`, and `pytest` passing on `origin/main`). |
 
 ---
 
