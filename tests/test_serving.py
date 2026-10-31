@@ -197,3 +197,81 @@ def test_load_serving_model_raises_when_neither_source_exists(tmp_path: Path) ->
             tracking_db=tmp_path / "no_mlflow.db",
             fallback_model_path=tmp_path / "no_model.joblib",
         )
+
+
+def test_delayed_ground_truth_feedback_and_realized_online_metrics(
+    synthetic_splits: tuple[pd.DataFrame, pd.DataFrame],
+    tmp_path: Path,
+) -> None:
+    """Verify POST /feedback records ground-truth duration and computes realized MAE/RMSE."""
+    train_df, _ = synthetic_splits
+    pipeline = build_ridge_baseline()
+    pipeline.fit(train_df[FEATURE_COLUMNS], train_df[TARGET_COLUMN])
+
+    model_path = tmp_path / "model.joblib"
+    joblib.dump(pipeline, model_path)
+    predictions_db = tmp_path / "predictions.db"
+
+    app = create_app(
+        tracking_db=tmp_path / "no_mlflow.db",
+        fallback_model_path=model_path,
+        predictions_db=predictions_db,
+    )
+
+    with TestClient(app) as client:
+        # Before any feedback, realized_performance has feedback_count=0 and None metrics
+        init_summary = client.get("/api/dashboard-summary").json()
+        assert init_summary["realized_performance"] == {
+            "feedback_count": 0,
+            "realized_mae": None,
+            "realized_rmse": None,
+        }
+
+        # Log a prediction
+        pred_res = client.post(
+            "/predict",
+            json={
+                "PULocationID": 74,
+                "DOLocationID": 42,
+                "trip_distance": 3.0,
+                "passenger_count": 1.0,
+                "pickup_hour": 10,
+                "pickup_day_of_week": 2,
+            },
+        )
+        assert pred_res.status_code == 200
+        pred_body = pred_res.json()
+        req_id = pred_body["request_id"]
+        pred_min = float(pred_body["predicted_duration_minutes"])
+
+        # Submit delayed ground-truth feedback (+2.0 min above predicted duration)
+        fb_res = client.post(
+            "/feedback",
+            json={
+                "request_id": req_id,
+                "actual_duration_minutes": round(min(60.0, pred_min + 2.0), 4),
+            },
+        )
+        assert fb_res.status_code == 200
+        fb_body = fb_res.json()
+        assert fb_body["request_id"] == req_id
+        assert fb_body["abs_error_minutes"] == pytest.approx(2.0, abs=1e-2)
+
+        # Unknown request_id returns 404
+        not_found = client.post(
+            "/feedback",
+            json={"request_id": "non-existent-id", "actual_duration_minutes": 12.0},
+        )
+        assert not_found.status_code == 404
+
+        # Verify dashboard summary and HTML reflect realized MAE/RMSE
+        after_summary = client.get("/api/dashboard-summary").json()
+        assert after_summary["realized_performance"]["feedback_count"] == 1
+        assert after_summary["realized_performance"]["realized_mae"] == pytest.approx(2.0, abs=1e-2)
+        assert after_summary["realized_performance"]["realized_rmse"] == pytest.approx(
+            2.0, abs=1e-2
+        )
+
+        html_text = client.get("/dashboard").text
+        assert "Realized Online MAE (Feedback)" in html_text
+        assert "(1 labels)" in html_text

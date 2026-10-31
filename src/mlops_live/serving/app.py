@@ -14,7 +14,7 @@ from typing import Any, NamedTuple
 
 import joblib
 import pandas as pd
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from sklearn.pipeline import Pipeline
 
@@ -23,11 +23,14 @@ from mlops_live.serving.dashboard import build_dashboard_summary, render_dashboa
 from mlops_live.serving.database import (
     count_logged_predictions,
     create_prediction_engine,
+    log_prediction_feedback,
     log_prediction_record,
 )
 from mlops_live.serving.schemas import (
     HealthResponse,
     ModelInfoResponse,
+    TripFeedbackRequest,
+    TripFeedbackResponse,
     TripPredictionRequest,
     TripPredictionResponse,
 )
@@ -255,6 +258,25 @@ def create_app(
             latency_ms=latency_ms,
             created_at_utc=created_at_utc,
         )
+
+    @app.post("/feedback", response_model=TripFeedbackResponse)
+    def submit_feedback(
+        payload: TripFeedbackRequest,
+        request: Request,
+    ) -> TripFeedbackResponse:
+        try:
+            feedback_row = log_prediction_feedback(
+                engine=request.app.state.db_engine,
+                request_id=payload.request_id,
+                actual_duration_minutes=payload.actual_duration_minutes,
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Prediction request_id '{payload.request_id}' not found.",
+            ) from exc
+
+        return TripFeedbackResponse(**feedback_row)
 
     @app.post("/reload-model", response_model=ModelInfoResponse)
     def reload_model(request: Request) -> ModelInfoResponse:

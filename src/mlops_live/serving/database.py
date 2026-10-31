@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from sqlalchemy import Engine, Float, Integer, String, create_engine, func, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
@@ -35,6 +37,21 @@ class PredictionLog(Base):
 
     predicted_duration_minutes: Mapped[float] = mapped_column(Float, nullable=False)
     latency_ms: Mapped[float] = mapped_column(Float, nullable=False)
+
+
+class PredictionFeedback(Base):
+    """Delayed ground-truth feedback record linked to a logged prediction request_id."""
+
+    __tablename__ = "prediction_feedback"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    request_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    created_at_utc: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    model_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    model_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    predicted_duration_minutes: Mapped[float] = mapped_column(Float, nullable=False)
+    actual_duration_minutes: Mapped[float] = mapped_column(Float, nullable=False)
+    abs_error_minutes: Mapped[float] = mapped_column(Float, nullable=False)
 
 
 def create_prediction_engine(db_path: Path = Path("predictions.db")) -> Engine:
@@ -87,3 +104,79 @@ def fetch_recent_predictions(engine: Engine, limit: int = 100) -> list[dict[str,
             }
             for r in rows
         ]
+
+
+def log_prediction_feedback(
+    engine: Engine,
+    request_id: str,
+    actual_duration_minutes: float,
+) -> dict[str, Any]:
+    """Record delayed ground-truth trip duration for a previously logged prediction request_id."""
+    Base.metadata.create_all(engine)
+    with Session(engine) as session, session.begin():
+        pred_stmt = select(PredictionLog).where(PredictionLog.request_id == request_id)
+        pred_row = session.scalar(pred_stmt)
+        if pred_row is None:
+            raise KeyError(f"Unknown prediction request_id: {request_id}")
+
+        pred_val = float(pred_row.predicted_duration_minutes)
+        actual_val = round(float(actual_duration_minutes), 4)
+        abs_err = round(abs(actual_val - pred_val), 4)
+        now_utc = datetime.now(UTC).isoformat()
+
+        existing_stmt = select(PredictionFeedback).where(
+            PredictionFeedback.request_id == request_id
+        )
+        existing = session.scalar(existing_stmt)
+        if existing is not None:
+            existing.created_at_utc = now_utc
+            existing.actual_duration_minutes = actual_val
+            existing.abs_error_minutes = abs_err
+        else:
+            session.add(
+                PredictionFeedback(
+                    request_id=request_id,
+                    created_at_utc=now_utc,
+                    model_name=pred_row.model_name,
+                    model_version=pred_row.model_version,
+                    predicted_duration_minutes=pred_val,
+                    actual_duration_minutes=actual_val,
+                    abs_error_minutes=abs_err,
+                )
+            )
+
+        return {
+            "request_id": request_id,
+            "created_at_utc": now_utc,
+            "model_name": pred_row.model_name,
+            "model_version": pred_row.model_version,
+            "predicted_duration_minutes": pred_val,
+            "actual_duration_minutes": actual_val,
+            "abs_error_minutes": abs_err,
+        }
+
+
+def compute_realized_performance(engine: Engine, limit: int = 1000) -> dict[str, Any]:
+    """Compute realized online MAE and RMSE across recent ground-truth feedback records."""
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        stmt = select(PredictionFeedback).order_by(PredictionFeedback.id.desc()).limit(limit)
+        rows = session.scalars(stmt).all()
+        if not rows:
+            return {
+                "feedback_count": 0,
+                "realized_mae": None,
+                "realized_rmse": None,
+            }
+
+        errors = np.array(
+            [float(r.actual_duration_minutes) - float(r.predicted_duration_minutes) for r in rows],
+            dtype=np.float64,
+        )
+        mae = round(float(np.mean(np.abs(errors))), 4)
+        rmse = round(float(np.sqrt(np.mean(np.square(errors)))), 4)
+        return {
+            "feedback_count": len(rows),
+            "realized_mae": mae,
+            "realized_rmse": rmse,
+        }

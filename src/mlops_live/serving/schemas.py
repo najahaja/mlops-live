@@ -58,3 +58,26 @@ class HealthResponse(BaseModel):
     model_alias: str
     model_source: str
     predictions_logged: int
+
+
+class TripFeedbackRequest(BaseModel):
+    """Input payload for submitting delayed ground-truth duration for a logged prediction."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str = Field(..., min_length=1, description="Original prediction request_id")
+    actual_duration_minutes: float = Field(
+        ..., ge=1.0, le=60.0, description="Realized actual trip duration in minutes (1.0 to 60.0)"
+    )
+
+
+class TripFeedbackResponse(BaseModel):
+    """Response payload returned by POST /feedback."""
+
+    request_id: str
+    model_name: str
+    model_version: str
+    predicted_duration_minutes: float
+    actual_duration_minutes: float
+    abs_error_minutes: float
+    created_at_utc: str

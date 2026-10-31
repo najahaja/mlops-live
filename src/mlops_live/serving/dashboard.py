@@ -8,7 +8,11 @@ from typing import Any
 import numpy as np
 from sqlalchemy import Engine
 
-from mlops_live.serving.database import count_logged_predictions, fetch_recent_predictions
+from mlops_live.serving.database import (
+    compute_realized_performance,
+    count_logged_predictions,
+    fetch_recent_predictions,
+)
 
 
 def _esc(value: Any) -> str:
@@ -30,6 +34,7 @@ def build_dashboard_summary(
 
     total_predictions = count_logged_predictions(engine)
     recent_preds = fetch_recent_predictions(engine, limit=recent_limit)
+    realized_perf = compute_realized_performance(engine, limit=1000)
     drift_history = fetch_recent_drift_reports(engine, limit=10)
     audit_logs = fetch_lifecycle_audit_logs(engine, limit=20)
 
@@ -63,6 +68,7 @@ def build_dashboard_summary(
         "total_predictions_logged": total_predictions,
         "latency_stats": latency_stats,
         "prediction_stats": prediction_stats,
+        "realized_performance": realized_perf,
         "recent_predictions": recent_preds[:15],
         "drift_reports": drift_history,
         "lifecycle_audit_logs": audit_logs,
@@ -74,6 +80,13 @@ def render_dashboard_html(summary: dict[str, Any]) -> str:
     am = summary["active_model"]
     lat = summary["latency_stats"]
     pred_stats = summary["prediction_stats"]
+    realized = summary.get("realized_performance", {})
+    if realized.get("feedback_count", 0) > 0 and realized.get("realized_mae") is not None:
+        realized_str = (
+            f"{float(realized['realized_mae']):.2f} min ({int(realized['feedback_count'])} labels)"
+        )
+    else:
+        realized_str = "N/A (0 labels)"
 
     drift_rows_html = ""
     for d in summary["drift_reports"]:
@@ -160,6 +173,10 @@ def render_dashboard_html(summary: dict[str, Any]) -> str:
     <div class="card">
       <div class="label">Predicted Duration (Mean)</div>
       <div class="val">{_esc(pred_stats["mean_duration_min"])} min</div>
+    </div>
+    <div class="card">
+      <div class="label">Realized Online MAE (Feedback)</div>
+      <div class="val">{_esc(realized_str)}</div>
     </div>
   </div>
   <h2>Data &amp; Prediction Drift History (PSI &amp; KS)</h2>
