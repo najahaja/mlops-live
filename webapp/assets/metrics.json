@@ -1,0 +1,126 @@
+{
+  "created_at_utc": "2026-10-28T09:48:34.437329+00:00",
+  "selected_model": "hist_gbdt_candidate",
+  "feature_columns": [
+    "PULocationID",
+    "DOLocationID",
+    "trip_distance",
+    "passenger_count",
+    "pickup_hour",
+    "pickup_day_of_week"
+  ],
+  "target_column": "duration_minutes",
+  "selected_val_metrics": {
+    "mae": 2.918272,
+    "rmse": 4.722275,
+    "r2": 0.744138,
+    "num_samples": 7879
+  },
+  "selected_train_metrics": {
+    "mae": 2.49613,
+    "rmse": 3.796334,
+    "r2": 0.801023,
+    "num_samples": 36770
+  },
+  "baseline_vs_candidate": {
+    "mae_reduction_minutes": 0.497829,
+    "mae_reduction_pct": 14.573,
+    "rmse_reduction_minutes": 0.48417,
+    "rmse_reduction_pct": 9.2994,
+    "r2_gain": 0.055156,
+    "candidate_is_better": true
+  },
+  "models": {
+    "dummy_median": {
+      "hyperparameters": {
+        "strategy": "median"
+      },
+      "fit_seconds": 0.0904,
+      "train_metrics": {
+        "mae": 6.031233,
+        "rmse": 8.741286,
+        "r2": -0.05493,
+        "num_samples": 36770
+      },
+      "val_metrics": {
+        "mae": 6.640699,
+        "rmse": 9.780408,
+        "r2": -0.097531,
+        "num_samples": 7879
+      }
+    },
+    "ridge_baseline": {
+      "hyperparameters": {
+        "alpha": 1.0,
+        "random_state": 42
+      },
+      "fit_seconds": 0.3491,
+      "train_metrics": {
+        "mae": 3.137325,
+        "rmse": 4.670295,
+        "r2": 0.698865,
+        "num_samples": 36770
+      },
+      "val_metrics": {
+        "mae": 3.416101,
+        "rmse": 5.206445,
+        "r2": 0.688982,
+        "num_samples": 7879
+      }
+    },
+    "hist_gbdt_candidate": {
+      "hyperparameters": {
+        "max_iter": 200,
+        "learning_rate": 0.08,
+        "max_leaf_nodes": 63,
+        "random_state": 42,
+        "cv_splits": 5
+      },
+      "fit_seconds": 2.7847,
+      "train_metrics": {
+        "mae": 2.49613,
+        "rmse": 3.796334,
+        "r2": 0.801023,
+        "num_samples": 36770
+      },
+      "val_metrics": {
+        "mae": 2.918272,
+        "rmse": 4.722275,
+        "r2": 0.744138,
+        "num_samples": 7879
+      }
+    }
+  },
+  "mlflow": {
+    "experiment_id": "1",
+    "experiment_name": "nyc-green-taxi-duration",
+    "registered_model_name": "nyc-green-taxi-duration-regressor",
+    "champion": {
+      "version": "2",
+      "model_name": "hist_gbdt_candidate",
+      "alias": "champion"
+    },
+    "challenger": {
+      "version": "1",
+      "model_name": "ridge_baseline",
+      "alias": "challenger"
+    },
+    "runs": [
+      {
+        "model_name": "dummy_median",
+        "registered_version": null,
+        "alias": null
+      },
+      {
+        "model_name": "ridge_baseline",
+        "registered_version": "1",
+        "alias": "challenger"
+      },
+      {
+        "model_name": "hist_gbdt_candidate",
+        "registered_version": "2",
+        "alias": "champion"
+      }
+    ]
+  }
+}

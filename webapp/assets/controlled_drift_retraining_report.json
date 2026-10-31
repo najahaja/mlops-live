@@ -1,0 +1,153 @@
+{
+  "created_at_utc": "2026-10-31T08:32:04.201190+00:00",
+  "experiment": "controlled_drift_detection_retraining_and_governance",
+  "protected_project_files_untouched": true,
+  "dataset_splits": {
+    "train_baseline_rows": 26902,
+    "val_baseline_rows": 5669,
+    "train_updated_rows": 36770,
+    "val_drifted_rows": 1820,
+    "chronological_leakage_free": true
+  },
+  "step1_bootstrap": {
+    "selected_model": "hist_gbdt_candidate",
+    "champion": {
+      "version": "2",
+      "model_name": "hist_gbdt_candidate"
+    },
+    "challenger": {
+      "version": "1",
+      "model_name": "ridge_baseline"
+    },
+    "val_baseline_mae": 2.0295,
+    "val_baseline_rmse": 3.2396
+  },
+  "step2_negative_drift_control": {
+    "overall_drift_detected": false,
+    "retraining_recommended": false,
+    "drifted_columns": [],
+    "insufficient_data_columns": [
+      "pickup_day_of_week"
+    ],
+    "weekday_status_reason": "Missing weekday(s) [0, 6] in comparison window; full 7-weekday cycle is required.",
+    "only_if_drifted_retrained": false,
+    "active_champion_version": "2"
+  },
+  "step3_positive_drift_detection": {
+    "overall_drift_detected": true,
+    "retraining_recommended": true,
+    "drifted_columns": [
+      "PULocationID",
+      "DOLocationID",
+      "trip_distance",
+      "predicted_duration_minutes"
+    ],
+    "trip_distance_psi": 8.268,
+    "trip_distance_ks": 1.0,
+    "prediction_drift_psi": 6.2642,
+    "prediction_drift_ks": 0.7798
+  },
+  "step4_drift_triggered_retraining": {
+    "retrained": true,
+    "active_champion_version_before_approval": "2",
+    "staged_challenger_version": "4",
+    "production_fallback_model_untouched_before_approval": true,
+    "evaluation": {
+      "created_at_utc": "2026-10-31T08:31:59.685189+00:00",
+      "eval_source": "val_split",
+      "eval_rows": 1820,
+      "min_mae_improvement": 0.0,
+      "gate_passed": true,
+      "champion": {
+        "alias": "champion",
+        "version": "2",
+        "model_name": "hist_gbdt_candidate",
+        "metrics": {
+          "mae": 9.03972,
+          "rmse": 12.364505,
+          "r2": -0.330151,
+          "num_samples": 1820
+        }
+      },
+      "challenger": {
+        "alias": "challenger",
+        "version": "4",
+        "model_name": "hist_gbdt_candidate",
+        "metrics": {
+          "mae": 5.554092,
+          "rmse": 7.72534,
+          "r2": 0.480743,
+          "num_samples": 1820
+        }
+      },
+      "comparison": {
+        "mae_reduction_minutes": 3.485628,
+        "mae_reduction_pct": 38.559,
+        "rmse_reduction_minutes": 4.639165,
+        "rmse_reduction_pct": 37.52,
+        "r2_gain": 0.810894,
+        "candidate_is_better": true
+      }
+    }
+  },
+  "step5_governance_approval_and_rollback": {
+    "approval": {
+      "event_type": "human_approval_promotion",
+      "actor": "najahaja",
+      "previous_champion_version": "2",
+      "new_champion_version": "4",
+      "new_champion_model_name": "hist_gbdt_candidate",
+      "challenger_version": "4",
+      "gate_passed": true,
+      "notes": "Approved by 'najahaja': promoted @challenger v4 (hist_gbdt_candidate) to @champion (previous @champion: v2)."
+    },
+    "status_after_approval": {
+      "champion": {
+        "version": "4",
+        "model_name": "hist_gbdt_candidate"
+      },
+      "challenger": {
+        "version": "4",
+        "model_name": "hist_gbdt_candidate"
+      },
+      "previous_champion": {
+        "version": "2",
+        "model_name": "hist_gbdt_candidate"
+      }
+    },
+    "rollback": {
+      "event_type": "model_rollback",
+      "actor": "najahaja",
+      "previous_champion_version": "4",
+      "new_champion_version": "2",
+      "new_champion_model_name": "hist_gbdt_candidate",
+      "challenger_version": "4",
+      "gate_passed": true,
+      "notes": "Rollback by 'najahaja' (controlled_rollback_verification): restored @champion from v4 to v2 (hist_gbdt_candidate)."
+    },
+    "final_status": {
+      "champion": {
+        "version": "2",
+        "model_name": "hist_gbdt_candidate"
+      },
+      "challenger": {
+        "version": "4",
+        "model_name": "hist_gbdt_candidate"
+      },
+      "previous_champion": {
+        "version": "4",
+        "model_name": "hist_gbdt_candidate"
+      }
+    }
+  },
+  "sqlite_records_logged_in_sandbox": {
+    "drift_reports_count": 4,
+    "lifecycle_audit_logs_count": 4,
+    "lifecycle_audit_events": [
+      "champion_vs_challenger_eval",
+      "retrain_and_stage_challenger",
+      "human_approval_promotion",
+      "model_rollback"
+    ]
+  }
+}

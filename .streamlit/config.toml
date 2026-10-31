@@ -1,0 +1,14 @@
+[theme]
+base = "light"
+primaryColor = "#1f6feb"
+
+[client]
+# Hide tracebacks and internal error details from public visitors.
+showErrorDetails = "none"
+toolbarMode = "viewer"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

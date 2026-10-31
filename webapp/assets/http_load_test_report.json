@@ -1,0 +1,61 @@
+{
+  "created_at_utc": "2026-10-29T18:50:36.130237+00:00",
+  "methodology": "local_uvicorn_localhost_tcp_http",
+  "methodology_note": "Measured over localhost TCP HTTP against a local Uvicorn FastAPI process. Results depend on local CPU load, model warm-up, concurrency, and OS scheduling, and do not establish cloud or production-scale capacity.",
+  "base_url": "http://127.0.0.1:8010",
+  "endpoint": "/predict",
+  "model_info": {
+    "project": "mlops-live",
+    "model_name": "hist_gbdt_candidate",
+    "model_version": "2",
+    "model_alias": "champion",
+    "model_source": "mlflow_registry"
+  },
+  "num_requests": 50,
+  "concurrency": 4,
+  "timeout_seconds": 5.0,
+  "success_count": 50,
+  "failure_count": 0,
+  "failure_breakdown": {
+    "http_errors": 0,
+    "timeouts": 0,
+    "connection_errors": 0,
+    "other_errors": 0
+  },
+  "success_rate": 1.0,
+  "error_rate": 0.0,
+  "total_wall_seconds": 2.0223,
+  "requests_per_second": 24.72,
+  "client_latency_ms": {
+    "min": 82.513,
+    "mean": 158.173,
+    "p50": 145.993,
+    "p95": 292.382,
+    "p99": 323.958,
+    "max": 326.593
+  },
+  "server_inference_latency_ms": {
+    "min": 42.676,
+    "mean": 118.898,
+    "p50": 112.668,
+    "p95": 255.012,
+    "p99": 262.289,
+    "max": 263.611
+  },
+  "environment": {
+    "python": "3.11.9",
+    "fastapi": "0.162.0",
+    "uvicorn": "0.54.0",
+    "requests": "2.34.2",
+    "httpx": "0.28.1",
+    "pydantic": "2.14.1",
+    "scikit-learn": "1.9.1",
+    "mlflow": "3.17.2",
+    "sqlalchemy": "2.1.6"
+  },
+  "sla": {
+    "max_error_rate": 0.0,
+    "max_p95_latency_ms": 500.0,
+    "sla_passed": true
+  }
+}

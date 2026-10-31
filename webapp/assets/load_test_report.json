@@ -1,0 +1,28 @@
+{
+  "created_at_utc": "2026-10-29T12:10:34.790123+00:00",
+  "num_requests": 100,
+  "concurrency": 4,
+  "success_count": 100,
+  "failure_count": 0,
+  "error_rate": 0.0,
+  "total_wall_seconds": 5.3336,
+  "requests_per_second": 18.75,
+  "client_latency_ms": {
+    "min": 90.994,
+    "mean": 211.702,
+    "p50": 190.144,
+    "p95": 371.622,
+    "p99": 402.25,
+    "max": 419.531
+  },
+  "server_inference_latency_ms": {
+    "mean": 175.004,
+    "p50": 156.243,
+    "p95": 323.262
+  },
+  "sla": {
+    "max_error_rate": 0.0,
+    "max_p95_latency_ms": 500.0,
+    "sla_passed": true
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "exported_at_utc": "2026-10-31T15:35:21.144361+00:00",
+  "model_file": "model.joblib",
+  "model_sha256": "fbee502e238a1df4a4da093d3b020d7ed428521b88f530b038b2203f6609b848",
+  "source_model_sha256": "fbee502e238a1df4a4da093d3b020d7ed428521b88f530b038b2203f6609b848",
+  "model_name": "hist_gbdt_candidate",
+  "registry_version": "2",
+  "registry_alias": "champion",
+  "registered_model_name": "nyc-green-taxi-duration-regressor",
+  "feature_columns": [
+    "PULocationID",
+    "DOLocationID",
+    "trip_distance",
+    "passenger_count",
+    "pickup_hour",
+    "pickup_day_of_week"
+  ],
+  "target_column": "duration_minutes",
+  "scikit_learn_version": "1.9.1",
+  "reports": [
+    "metrics.json",
+    "holdout_test_metrics.json",
+    "feb_2024_out_of_time_evaluation.json",
+    "controlled_drift_retraining_report.json",
+    "http_load_test_report.json",
+    "load_test_report.json"
+  ],
+  "zone_lookup_exported": true,
+  "holdout_verification": {
+    "split": "jan_2024_isolated_holdout_test",
+    "mae": 2.749788,
+    "rmse": 4.352457,
+    "r2": 0.757772,
+    "num_samples": 7880
+  }
+}

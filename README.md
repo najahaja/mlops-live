@@ -5,7 +5,7 @@
 A production-style, local-first MLOps platform built around a real public dataset:
 **NYC TLC Green Taxi trip records**, used to predict **trip duration (`duration_minutes`)** at ride-request time.
 
-> **Current Status:** Phases 1–7 implemented and locally verified on Windows 11 / Python 3.11.9 (`55 passed` automated tests, `ruff check` and `ruff format --check` clean).
+> **Current Status:** Phases 1–7 implemented and locally verified on Windows 11 / Python 3.11.9 (`76 passed` automated tests, `ruff check` and `ruff format --check` clean).
 
 ---
 
@@ -164,6 +164,31 @@ Evaluated the January 2024 `@champion` (`v2`, `hist_gbdt_candidate`) and `@chall
 - When a trip finishes and its true duration (`actual_duration_minutes`) becomes available, callers can submit `POST /feedback` with `{ "request_id": "<prediction-request-id>", "actual_duration_minutes": <float> }`.
 - `log_prediction_feedback()` correlates the feedback against the original `prediction_logs` row by `request_id`, computes `error_minutes` (`predicted - actual`) and `absolute_error_minutes`, and persists or updates the row in `prediction_feedback`.
 - `compute_realized_performance()` aggregates realized online `mae`, `rmse`, and `mean_signed_error_minutes` across matched feedback rows and surfaces them in `GET /api/dashboard-summary` (`realized_performance`) and the `Realized Online MAE (Feedback)` card on `GET /dashboard`.
+
+---
+
+## Public Streamlit Demo (`webapp/`)
+
+A read-only, recruiter-friendly Streamlit interface lives in [`webapp/streamlit_app.py`](webapp/streamlit_app.py). It has five tabs: Overview, Predict, Model performance, Monitoring & drift, and MLOps lifecycle.
+
+**Deployment architecture (Streamlit Community Cloud):**
+- Community Cloud cannot reach the local MLflow registry (`mlflow.db`, `mlruns/`) or the operational store (`predictions.db`). Those files stay local and are **not** published.
+- [`scripts/export_streamlit_assets.py`](scripts/export_streamlit_assets.py) copies the current `@champion` fallback artifact (`models/model.joblib`, 1.4 MB) plus the verified evaluation reports into `webapp/assets/`. It strips local paths, PIDs and run IDs, records a SHA-256 manifest, and re-verifies holdout MAE (`2.749788`). Source files are only read.
+- The app loads the bundled model (with a checksum check), validates inputs using the same `TripPredictionRequest` Pydantic schema as FastAPI `POST /predict`, and mirrors its inference logic. Parity with the FastAPI endpoint is tested in `tests/test_webapp.py`.
+- **Optional:** if a FastAPI service is hosted separately, set the `MLOPS_API_URL` secret. The app then calls `{MLOPS_API_URL}/predict` and falls back to the bundled model if that service is unavailable.
+- `webapp/requirements.txt` is a lightweight dependency set (no MLflow, FastAPI or SQLAlchemy) that Community Cloud picks up from the entrypoint's directory.
+
+**Read-only / not available in the public app:** retraining, promotion, approval and rollback (CLI-only, require local registry access); prediction logs and delayed-feedback metrics (local SQLite, not published); predictions made in the demo are not logged.
+
+```powershell
+# Refresh the published asset bundle after retraining/promotion (writes only webapp/assets/)
+.\.venv\Scripts\python.exe scripts\export_streamlit_assets.py --overwrite
+
+# Run the demo locally
+.\.venv\Scripts\python.exe -m streamlit run webapp\streamlit_app.py
+```
+
+**Deploy to Streamlit Community Cloud:** go to share.streamlit.io → **Create app** → *Deploy a public app from GitHub* and enter: Repository `najahaja/mlops-live`, Branch `main`, Main file path `webapp/streamlit_app.py`. Under **Advanced settings**, select **Python 3.11** (required for the pinned `pandas==3.1.0` / `scikit-learn==1.9.1` model pickle). Secrets are optional (see `.streamlit/secrets.toml.example`).
 
 ---
 

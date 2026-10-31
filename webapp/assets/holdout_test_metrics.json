@@ -1,0 +1,44 @@
+{
+  "evaluated_at_utc": "2026-10-29T12:09:56.907486+00:00",
+  "test_rows": 7880,
+  "champion": {
+    "alias": "champion",
+    "version": "2",
+    "model_name": "hist_gbdt_candidate",
+    "test_metrics": {
+      "mae": 2.749788,
+      "rmse": 4.352457,
+      "r2": 0.757772,
+      "num_samples": 7880
+    },
+    "error_quantiles": {
+      "p50_abs_error_min": 1.6834,
+      "p90_abs_error_min": 6.2803,
+      "p95_abs_error_min": 9.0037
+    }
+  },
+  "challenger": {
+    "alias": "challenger",
+    "version": "1",
+    "model_name": "ridge_baseline",
+    "test_metrics": {
+      "mae": 3.199708,
+      "rmse": 4.809855,
+      "r2": 0.704185,
+      "num_samples": 7880
+    },
+    "error_quantiles": {
+      "p50_abs_error_min": 2.2187,
+      "p90_abs_error_min": 6.933,
+      "p95_abs_error_min": 9.6419
+    }
+  },
+  "comparison": {
+    "mae_reduction_minutes": 0.449919,
+    "mae_reduction_pct": 14.0613,
+    "rmse_reduction_minutes": 0.457398,
+    "rmse_reduction_pct": 9.5096,
+    "r2_gain": 0.053586,
+    "candidate_is_better": true
+  }
+}

@@ -1,0 +1,134 @@
+{
+  "created_at_utc": "2026-10-31T09:13:58.230238+00:00",
+  "feb_2024_raw_rows": 53577,
+  "feb_2024_cleaned_rows": 49660,
+  "champion_v2_hist_gbdt_metrics": {
+    "mae": 2.772543,
+    "rmse": 4.357445,
+    "r2": 0.754996,
+    "num_samples": 49660
+  },
+  "challenger_v1_ridge_metrics": {
+    "mae": 3.258713,
+    "rmse": 4.876122,
+    "r2": 0.693198,
+    "num_samples": 49660
+  },
+  "champion_vs_challenger_comparison": {
+    "mae_reduction_minutes": 0.48617,
+    "mae_reduction_pct": 14.9191,
+    "rmse_reduction_minutes": 0.518678,
+    "rmse_reduction_pct": 10.6371,
+    "r2_gain": 0.061798,
+    "candidate_is_better": true
+  },
+  "jan_vs_feb_2024_drift": {
+    "created_at_utc": "2026-10-31T09:13:58.230238+00:00",
+    "reference_source": "data/processed/train.parquet (Jan 2024)",
+    "current_source": "data/raw/green_tripdata_2024-02.parquet (Feb 2024)",
+    "reference_rows": 36770,
+    "current_rows": 49660,
+    "thresholds": {
+      "psi_threshold": 0.25,
+      "ks_threshold": 0.1,
+      "ks_alpha": 0.01
+    },
+    "overall_drift_detected": false,
+    "retraining_recommended": false,
+    "drifted_columns": [],
+    "insufficient_data_columns": [],
+    "feature_drift": {
+      "PULocationID": {
+        "column": "PULocationID",
+        "is_categorical": true,
+        "psi": 0.010648,
+        "psi_severity": "none",
+        "ks_statistic": 0.017332,
+        "ks_p_value": 6e-06,
+        "reference_mean": 94.1674,
+        "current_mean": 95.2919,
+        "drift_detected": false,
+        "evaluation_status": "evaluated",
+        "status_reason": null
+      },
+      "DOLocationID": {
+        "column": "DOLocationID",
+        "is_categorical": true,
+        "psi": 0.003378,
+        "psi_severity": "none",
+        "ks_statistic": 0.00865,
+        "ks_p_value": 0.084242,
+        "reference_mean": 140.151,
+        "current_mean": 140.2847,
+        "drift_detected": false,
+        "evaluation_status": "evaluated",
+        "status_reason": null
+      },
+      "trip_distance": {
+        "column": "trip_distance",
+        "is_categorical": false,
+        "psi": 0.000918,
+        "psi_severity": "none",
+        "ks_statistic": 0.008582,
+        "ks_p_value": 0.088498,
+        "reference_mean": 2.7098,
+        "current_mean": 2.7303,
+        "drift_detected": false,
+        "evaluation_status": "evaluated",
+        "status_reason": null
+      },
+      "passenger_count": {
+        "column": "passenger_count",
+        "is_categorical": false,
+        "psi": 8.8e-05,
+        "psi_severity": "none",
+        "ks_statistic": 0.005408,
+        "ks_p_value": 0.564977,
+        "reference_mean": 1.3026,
+        "current_mean": 1.2898,
+        "drift_detected": false,
+        "evaluation_status": "evaluated",
+        "status_reason": null
+      },
+      "pickup_hour": {
+        "column": "pickup_hour",
+        "is_categorical": true,
+        "psi": 0.005243,
+        "psi_severity": "none",
+        "ks_statistic": 0.014534,
+        "ks_p_value": 0.000263,
+        "reference_mean": 13.8706,
+        "current_mean": 14.0568,
+        "drift_detected": false,
+        "evaluation_status": "evaluated",
+        "status_reason": null
+      },
+      "pickup_day_of_week": {
+        "column": "pickup_day_of_week",
+        "is_categorical": true,
+        "psi": 0.015085,
+        "psi_severity": "none",
+        "ks_statistic": 0.037125,
+        "ks_p_value": 0.0,
+        "reference_mean": 2.7923,
+        "current_mean": 2.8844,
+        "drift_detected": false,
+        "evaluation_status": "evaluated",
+        "status_reason": null
+      }
+    },
+    "prediction_drift": {
+      "column": "predicted_duration_minutes",
+      "is_categorical": false,
+      "psi": 0.000209,
+      "psi_severity": "none",
+      "ks_statistic": 0.007719,
+      "ks_p_value": 0.160412,
+      "reference_mean": 13.4362,
+      "current_mean": 13.4522,
+      "drift_detected": false,
+      "evaluation_status": "evaluated",
+      "status_reason": null
+    }
+  }
+}

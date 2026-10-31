@@ -1,0 +1,13 @@
+# Streamlit Community Cloud dependencies for the public demo (webapp/streamlit_app.py).
+# Community Cloud reads this file because it sits next to the entrypoint, so the heavy
+# training/serving stack in the root requirements.txt (MLflow, FastAPI, SQLAlchemy, Uvicorn)
+# is NOT installed for the demo. Select Python 3.11 in the app's Advanced settings.
+#
+# scikit-learn must match the version used to train/pickle webapp/assets/model.joblib.
+streamlit==1.66.1
+pandas==3.1.0
+numpy==2.4.6
+scikit-learn==1.9.1
+pyarrow==25.0.1
+pydantic==2.14.1
+requests==2.34.2
