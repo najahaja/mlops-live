@@ -49,7 +49,7 @@ flowchart TD
 | **SQLite MLflow Tracking & Model Registry** | Implemented (`src/mlops_live/tracking/mlflow_tracker.py`) | **Locally verified** with `mlflow.db` + `mlruns/` (`@champion` = `v2`, `@challenger` = `v1`). |
 | **FastAPI Serving, SQLite Logging & HTML Dashboard** | Implemented (`src/mlops_live/serving/`, `scripts/serve.py`) | **Locally verified** (`GET /health`, `GET /model-info`, `POST /predict`, `POST /reload-model`, `GET /dashboard`, `GET /api/dashboard-summary`) with HTML XSS escaping (`html.escape`). |
 | **PSI & Kolmogorov–Smirnov Drift Monitoring** | Implemented (`src/mlops_live/monitoring/drift.py`, `scripts/check_drift.py`) | **Locally verified** with weekday-coverage safeguard (`evaluation_status="insufficient_data"` when `< 7` weekdays or `< 5` samples/weekday). |
-| **Retraining, Human Approval Gate & Rollback** | Implemented (`src/mlops_live/lifecycle/workflow.py`, `scripts/retrain_and_evaluate.py`, `scripts/manage_model.py`) | **Locally verified** via end-to-end automated tests on temporary registries/artifacts and read/eval checks on `mlflow.db`. |
+| **Retraining, Human Approval Gate & Rollback** | Implemented (`src/mlops_live/lifecycle/workflow.py`, `scripts/retrain_and_evaluate.py`, `scripts/manage_model.py`) | **Locally verified** via end-to-end automated tests and a 5-step isolated sandbox experiment on real NYC Green Taxi data (`reports/generated/controlled_drift_retraining_report.json`). |
 | **Isolated Holdout Evaluation (`test.parquet`)** | Implemented (`scripts/evaluate_holdout.py`) | **Locally verified** on untouched `data/processed/test.parquet` (`7,880` rows). |
 | **Concurrent Load & Latency Testing** | Implemented (`scripts/load_test.py`: `--mode in_process` and `--mode http` / `--spawn-server`) | **Locally verified** in both in-process `TestClient` mode (`reports/generated/load_test_report.json`) and live localhost TCP HTTP Uvicorn mode (`reports/generated/http_load_test_report.json`). |
 | **GitHub Actions CI Workflow** | Implemented (`.github/workflows/ci.yml`) | **Configured locally, unverified on GitHub** (no Git remote is configured yet; all CI steps pass locally). |
@@ -104,6 +104,28 @@ flowchart TD
 | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
 | `4` threads | `100` | `0.0%` | `16.04` | `169.16` / `395.03` | `215.82` / `438.44` | **PASSED (`true`)** |
 | `8` threads | `100` | `0.0%` | `19.96` | `304.24` / `493.00` | `373.12` / `565.12` | **FAILED (`false`, CPU thread contention on 2C/4T laptop)** |
+
+### 4. Controlled Drift Detection, Retraining & Governance Experiment (`reports/generated/controlled_drift_retraining_report.json`)
+
+Executed in a 100% isolated sandbox (`mlflow.db`, `mlruns/`, `predictions.db`, `models/`, and `reports/` in `%TEMP%`, verified via SHA-256 checksums to leave all root project databases, models, and reports untouched) using chronologically disjoint, leakage-free slices of the real January 2024 NYC Green Taxi splits:
+- **Baseline Short-Haul Regime:** `train_baseline.parquet` (`26,902` rows from `train.parquet` with `trip_distance <= 3.0` mi) and `val_baseline.parquet` (`5,669` rows from `val.parquet` with `trip_distance <= 3.0` mi).
+- **Shifted Long-Haul Regime:** `val_drifted.parquet` (`1,820` rows strictly from `val.parquet` with `trip_distance > 3.5` mi) and `train_updated.parquet` (`36,770` rows strictly from `train.parquet`, zero `val.parquet` rows).
+
+| Experiment Step | CLI Command / Workflow | Verified Outcome |
+| :--- | :--- | :--- |
+| **1. Baseline Bootstrap** | `scripts/train.py` (`train_baseline` $\rightarrow$ `val_baseline`) | Registered `ridge_baseline` as `v1` (`Val MAE = 2.1488`) and `hist_gbdt_candidate` as `v2` (`Val MAE = 2.0295`); assigned `@champion = v2`, `@challenger = v1`. |
+| **2. Negative Drift Control** | `scripts/check_drift.py` & `scripts/retrain_and_evaluate.py --only-if-drifted` (`train.parquet` vs. `val.parquet`) | `overall_drift_detected = false`, `drifted_columns = []`, `insufficient_data_columns = ["pickup_day_of_week"]` (`Missing weekday(s) [0, 6]`); `--only-if-drifted` skipped retraining (`retrained = false`) and kept `@champion = v2`. |
+| **3. Positive Drift Detection** | `scripts/check_drift.py` (`train_baseline` vs. `val_drifted`) | `overall_drift_detected = true`, `retraining_recommended = true`, `drifted_columns = ["PULocationID", "DOLocationID", "trip_distance", "predicted_duration_minutes"]` (`trip_distance` PSI = `8.2680`, KS = `1.0000`; `prediction_drift` PSI = `6.2642`, KS = `0.7798`). |
+| **4. Drift-Triggered Retraining & Challenger Staging** | `scripts/retrain_and_evaluate.py --only-if-drifted` (`train_updated` vs. `val_drifted`) | Triggered retraining (`retrained = true`), staged new `hist_gbdt_candidate` as `@challenger = v4` and wrote `<sandbox>/models/challenger/model.joblib` while `<sandbox>/models/model.joblib` SHA-256 remained identical to Step 1 (`@champion = v2`). |
+| **5. Human Approval & Rollback** | `scripts/manage_model.py --approve --approved-by najahaja` $\rightarrow$ `--rollback-previous` | Promoted `@challenger` `v4` $\rightarrow$ `@champion` (`v2` $\rightarrow$ `@previous_champion`) after passing gate; then rolled back `@champion` `v4` $\rightarrow$ `v2` and verified all 4 SQLite audit events (`champion_vs_challenger_eval`, `retrain_and_stage_challenger`, `human_approval_promotion`, `model_rollback`). |
+
+#### Champion (`v2`) vs. Retrained Challenger (`v4`) Gate Evaluation on `val_drifted.parquet` (`1,820` rows)
+
+| Model Role | Version | Model Name | Validation MAE (min) | Validation RMSE (min) | Validation $R^2$ | Gate Status |
+| :--- | :--- | :--- | ---: | ---: | ---: | :--- |
+| **Incumbent `@champion`** (short-haul baseline) | `v2` | `hist_gbdt_candidate` | `9.0397` | `12.3645` | `-0.3302` | — |
+| **Retrained `@challenger`** (adapted full training split) | `v4` | `hist_gbdt_candidate` | **`5.5541`** | **`7.7253`** | **`+0.4807`** | **`PASSED` (`true`)** |
+| **Challenger Gain (`champion - challenger`)** | — | — | **`+3.4856` min (`-38.56%`)** | **`+4.6392` min (`-37.52%`)** | **`+0.8109`** | — |
 
 ---
 
