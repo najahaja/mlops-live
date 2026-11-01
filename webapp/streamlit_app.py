@@ -172,7 +172,7 @@ with st.sidebar:
     st.markdown(
         "- **Dataset:** NYC TLC Green Taxi (Jan & Feb 2024)\n"
         "- **Cleaned Volume:** 102,189 verified trips\n"
-        "- **Automated Tests:** 78 passed (CI clean)\n"
+        "- **Automated Tests:** 79 passed (CI clean)\n"
         "- **Python Engine:** 3.11 / scikit-learn 1.9.1"
     )
 
@@ -238,7 +238,7 @@ with tab_overview:
         delta="R² = 0.755",
         delta_color="normal",
     )
-    c4.metric("Automated Tests", "78 passing", delta="100% pass")
+    c4.metric("Automated Tests", "79 passing", delta="100% pass")
 
     st.markdown("### Platform Architecture")
     st.graphviz_chart(

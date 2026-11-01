@@ -335,3 +335,18 @@ def test_streamlit_app_exact_title():
     content = (WEBAPP_DIR / "streamlit_app.py").read_text(encoding="utf-8")
     assert "ML-Ops-Live — NYC Taxi Trip-Duration Prediction & MLOps Platform" in content
     assert 'page_icon="🚕"' in content
+
+
+def test_root_streamlit_app_delegates_to_webapp():
+    """Verify that root streamlit_app.py forwards execution to webapp/streamlit_app.py."""
+    pytest.importorskip("streamlit")
+    if not (WEBAPP_DIR / "assets" / "model.joblib").is_file():
+        pytest.skip("webapp/assets not exported")
+    from streamlit.testing.v1 import AppTest
+
+    root_entry = REPO_ROOT / "streamlit_app.py"
+    assert root_entry.is_file(), "Root streamlit_app.py missing"
+    app = AppTest.from_file(str(root_entry), default_timeout=60)
+    app.run()
+    assert not app.exception, app.exception
+    assert len(app.tabs) == 5

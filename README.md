@@ -5,7 +5,7 @@
 A production-style, local-first MLOps platform built around a real public dataset:
 **NYC TLC Green Taxi trip records**, used to predict **trip duration (`duration_minutes`)** at ride-request time.
 
-> **Current Status:** Phases 1–7 implemented and locally verified on Windows 11 / Python 3.11.9 (`78 passed` automated tests, `ruff check` and `ruff format --check` clean).
+> **Current Status:** Phases 1–7 implemented and locally verified on Windows 11 / Python 3.11.9 (`79 passed` automated tests, `ruff check` and `ruff format --check` clean).
 
 ---
 
@@ -188,7 +188,7 @@ A read-only, recruiter-friendly Streamlit interface lives in [`webapp/streamlit_
 .\.venv\Scripts\python.exe -m streamlit run webapp\streamlit_app.py
 ```
 
-**Deploy to Streamlit Community Cloud:** go to share.streamlit.io → **Create app** → *Deploy a public app from GitHub* and enter: Repository `najahaja/mlops-live`, Branch `main`, Main file path `webapp/streamlit_app.py`. Under **Advanced settings**, select **Python 3.11** (required for the pinned `pandas==3.1.0` / `scikit-learn==1.9.1` model pickle). Secrets are optional (see `.streamlit/secrets.toml.example`).
+**Deploy to Streamlit Community Cloud:** go to share.streamlit.io → **Create app** → *Deploy a public app from GitHub* and enter: Repository `najahaja/mlops-live`, Branch `main`, Main file path `streamlit_app.py` (or `webapp/streamlit_app.py`). Under **Advanced settings**, select **Python 3.11** (required for the pinned `pandas==3.1.0` / `scikit-learn==1.9.1` model pickle). Secrets are optional (see `.streamlit/secrets.toml.example`).
 
 ---
 
