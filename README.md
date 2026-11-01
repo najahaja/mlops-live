@@ -5,7 +5,7 @@
 A production-style, local-first MLOps platform built around a real public dataset:
 **NYC TLC Green Taxi trip records**, used to predict **trip duration (`duration_minutes`)** at ride-request time.
 
-> **Current Status:** Phases 1–7 implemented and locally verified on Windows 11 / Python 3.11.9 (`79 passed` automated tests, `ruff check` and `ruff format --check` clean).
+> **Current Status:** **Complete & Fully Verified** on Windows 11 / Python 3.11.9 (`79 passed` automated tests, `ruff check` and `ruff format --check` clean). Includes production MLflow registry, FastAPI serving, drift monitoring, automated retraining governance, holdout evaluation, load testing, and interactive Streamlit web application.
 
 ---
 
@@ -46,15 +46,16 @@ flowchart TD
 
 | Capability | Implementation Status | Verification Scope |
 | :--- | :--- | :--- |
-| **Data Ingestion, Cleaning & Chronological Splitting** | Implemented (`src/mlops_live/data/`, `scripts/download_data.py`, `scripts/prepare_data.py`) | **Locally verified** on real Jan 2024 NYC Green Taxi data (`56,551` raw rows $\rightarrow$ `52,529` cleaned rows) and covered by unit/CLI tests. |
-| **Baseline & Candidate Model Training** | Implemented (`src/mlops_live/models/`, `scripts/train.py`) | **Locally verified** on real `train.parquet` (`36,770` rows) and `val.parquet` (`7,879` rows). |
-| **SQLite MLflow Tracking & Model Registry** | Implemented (`src/mlops_live/tracking/mlflow_tracker.py`) | **Locally verified** with `mlflow.db` + `mlruns/` (`@champion` = `v2`, `@challenger` = `v1`). |
-| **FastAPI Serving, Delayed Ground-Truth Feedback, SQLite Logging & HTML Dashboard** | Implemented (`src/mlops_live/serving/`, `scripts/serve.py`) | **Locally verified** (`GET /health`, `GET /model-info`, `POST /predict`, `POST /feedback`, `POST /reload-model`, `GET /dashboard`, `GET /api/dashboard-summary`) with realized online MAE/RMSE tracking (`prediction_feedback`) and HTML XSS escaping (`html.escape`). |
-| **PSI & Kolmogorov–Smirnov Drift Monitoring** | Implemented (`src/mlops_live/monitoring/drift.py`, `scripts/check_drift.py`) | **Locally verified** with weekday-coverage safeguard (`evaluation_status="insufficient_data"` when `< 7` weekdays or `< 5` samples/weekday) and full-month Jan vs. Feb 2024 evaluation (`evaluation_status="evaluated"`). |
-| **Retraining, Human Approval Gate & Rollback** | Implemented (`src/mlops_live/lifecycle/workflow.py`, `scripts/retrain_and_evaluate.py`, `scripts/manage_model.py`) | **Locally verified** via end-to-end automated tests and a 5-step isolated sandbox experiment on real NYC Green Taxi data (`reports/generated/controlled_drift_retraining_report.json`). |
-| **Isolated Holdout & Multi-Month Out-of-Time Evaluation** | Implemented (`scripts/evaluate_holdout.py`) | **Locally verified** on untouched Jan 2024 `data/processed/test.parquet` (`7,880` rows) and full-month Feb 2024 `data/raw/green_tripdata_2024-02.parquet` (`49,660` cleaned rows, `reports/generated/feb_2024_out_of_time_evaluation.json`). |
-| **Concurrent Load & Latency Testing** | Implemented (`scripts/load_test.py`: `--mode in_process` and `--mode http` / `--spawn-server`) | **Locally verified** in both in-process `TestClient` mode (`reports/generated/load_test_report.json`) and live localhost TCP HTTP Uvicorn mode (`reports/generated/http_load_test_report.json`). |
-| **GitHub Actions CI Workflow** | Implemented (`.github/workflows/ci.yml`) | **Verified locally & on GitHub Actions** (`pip check`, `ruff check`, `ruff format --check`, and `pytest` passing on `origin/main`). |
+| **Data Ingestion, Cleaning & Chronological Splitting** | Complete (`src/mlops_live/data/`, `scripts/download_data.py`, `scripts/prepare_data.py`) | **Locally verified** on real Jan 2024 NYC Green Taxi data (`56,551` raw rows $\rightarrow$ `52,529` cleaned rows) and covered by unit/CLI tests. |
+| **Baseline & Candidate Model Training** | Complete (`src/mlops_live/models/`, `scripts/train.py`) | **Locally verified** on real `train.parquet` (`36,770` rows) and `val.parquet` (`7,879` rows). |
+| **SQLite MLflow Tracking & Model Registry** | Complete (`src/mlops_live/tracking/mlflow_tracker.py`) | **Locally verified** with `mlflow.db` + `mlruns/` (`@champion` = `v2`, `@challenger` = `v1`). |
+| **FastAPI Serving, Delayed Ground-Truth Feedback, SQLite Logging & HTML Dashboard** | Complete (`src/mlops_live/serving/`, `scripts/serve.py`) | **Locally verified** (`GET /health`, `GET /model-info`, `POST /predict`, `POST /feedback`, `POST /reload-model`, `GET /dashboard`, `GET /api/dashboard-summary`) with realized online MAE/RMSE tracking (`prediction_feedback`) and HTML XSS escaping (`html.escape`). |
+| **PSI & Kolmogorov–Smirnov Drift Monitoring** | Complete (`src/mlops_live/monitoring/drift.py`, `scripts/check_drift.py`) | **Locally verified** with weekday-coverage safeguard (`evaluation_status="insufficient_data"` when `< 7` weekdays or `< 5` samples/weekday) and full-month Jan vs. Feb 2024 evaluation (`evaluation_status="evaluated"`). |
+| **Retraining, Human Approval Gate & Rollback** | Complete (`src/mlops_live/lifecycle/workflow.py`, `scripts/retrain_and_evaluate.py`, `scripts/manage_model.py`) | **Locally verified** via end-to-end automated tests and a 5-step isolated sandbox experiment on real NYC Green Taxi data (`reports/generated/controlled_drift_retraining_report.json`). |
+| **Isolated Holdout & Multi-Month Out-of-Time Evaluation** | Complete (`scripts/evaluate_holdout.py`) | **Locally verified** on untouched Jan 2024 `data/processed/test.parquet` (`7,880` rows) and full-month Feb 2024 `data/raw/green_tripdata_2024-02.parquet` (`49,660` cleaned rows, `reports/generated/feb_2024_out_of_time_evaluation.json`). |
+| **Concurrent Load & Latency Testing** | Complete (`scripts/load_test.py`: `--mode in_process` and `--mode http` / `--spawn-server`) | **Locally verified** in both in-process `TestClient` mode (`reports/generated/load_test_report.json`) and live localhost TCP HTTP Uvicorn mode (`reports/generated/http_load_test_report.json`). |
+| **Interactive Streamlit Web Dashboard** | Complete (`streamlit_app.py`, `webapp/`) | **Locally verified & cloud ready** with interactive predictions, model comparisons, drift reports, and architecture diagrams. |
+| **GitHub Actions CI Workflow** | Complete (`.github/workflows/ci.yml`) | **Verified locally & on GitHub Actions** (`pip check`, `ruff check`, `ruff format --check`, and `pytest` passing on `origin/main`). |
 
 ---
 
