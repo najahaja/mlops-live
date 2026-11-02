@@ -1,8 +1,4 @@
-"""Root entrypoint for Streamlit Community Cloud deployment.
 
-Streamlit Community Cloud defaults to looking for 'streamlit_app.py' in the
-repository root. This entrypoint forwards execution to 'webapp/streamlit_app.py'.
-"""
 
 from __future__ import annotations
 
