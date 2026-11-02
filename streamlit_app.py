@@ -1,4 +1,4 @@
-
+"""Root entrypoint forwarding execution to webapp/streamlit_app.py."""
 
 from __future__ import annotations
 
